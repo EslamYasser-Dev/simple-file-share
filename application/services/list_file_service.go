@@ -1,9 +1,8 @@
 package services
 
 import (
-	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
-
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 type ListFilesService struct {
