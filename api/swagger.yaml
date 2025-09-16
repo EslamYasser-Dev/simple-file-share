@@ -1,0 +1,110 @@
+openapi: 3.0.3
+info:
+  title: Go File Server API
+  description: HTTPS File Server with Upload, Download, and Directory Listing
+  version: 1.0.0
+  contact:
+    name: Your Name
+    email: your.email@example.com
+  license:
+    name: MIT
+servers:
+  - url: https://localhost:22010
+    description: Local development server
+  - url: https://your-production-domain.com
+    description: Production server
+security:
+  - basicAuth: []
+paths:
+  /:
+    get:
+      summary: List directory or download file/folder
+      description: |
+        - If path is a directory → returns HTML listing.
+        - If path is a file → downloads file.
+        - If path ends with `.zip` → downloads folder as ZIP archive.
+      parameters:
+        - name: path
+          in: query
+          description: Virtual path (appended to URL)
+          required: false
+          schema:
+            type: string
+            example: "/documents"
+      responses:
+        '200':
+          description: Directory listing HTML or file stream
+          content:
+            text/html:
+              schema:
+                type: string
+            application/zip:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Unauthorized — missing or invalid Basic Auth
+        '403':
+          description: Forbidden — path traversal detected
+        '404':
+          description: Not Found — path does not exist
+      security:
+        - basicAuth: []
+
+  /upload:
+    post:
+      summary: Upload files or folders
+      description: Accepts multipart/form-data. Supports folder upload via webkitdirectory.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: HTML page listing uploaded files
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          description: Unauthorized
+        '405':
+          description: Method Not Allowed — only POST allowed
+        '400':
+          description: Bad Request — invalid multipart data
+      security:
+        - basicAuth: []
+
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Returns 200 if server is healthy. Used by Docker/Kubernetes.
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  uptime:
+                    type: string
+                    example: "2m30s"
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic

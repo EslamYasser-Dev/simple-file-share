@@ -1,15 +1,21 @@
 package xhttp
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	_ "embed"
+
+	"github.com/EslamYasser-Dev/simple-file-share/api"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
-// Server configures and runs the HTTPS server.
 type Server struct {
 	port            string
 	tlsGenerator    ports.TLSCertGenerator
@@ -17,15 +23,28 @@ type Server struct {
 	listHandler     http.Handler
 	downloadHandler http.Handler
 	uploadHandler   http.Handler
+	httpServer      *http.Server
 }
 
-// NewServer creates a new HTTP server with given dependencies.
 func NewServer(
 	port string,
 	tlsGen ports.TLSCertGenerator,
 	logger ports.Logger,
 	listHandler, downloadHandler, uploadHandler http.Handler,
 ) *Server {
+	server := &http.Server{
+		Addr: ":" + port,
+		TLSConfig: &tls.Config{
+			Certificates:             nil,
+			MinVersion:               tls.VersionTLS12,
+			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+			PreferServerCipherSuites: true,
+		},
+		ReadTimeout:    24 * time.Hour,
+		WriteTimeout:   24 * time.Hour,
+		MaxHeaderBytes: 1 << 20,
+	}
+
 	return &Server{
 		port:            port,
 		tlsGenerator:    tlsGen,
@@ -33,10 +52,11 @@ func NewServer(
 		listHandler:     listHandler,
 		downloadHandler: downloadHandler,
 		uploadHandler:   uploadHandler,
+		httpServer:      server,
 	}
 }
 
-// Start initializes TLS and starts listening.
+// Start initializes TLS and starts listening with graceful shutdown.
 func (s *Server) Start() error {
 	s.registerRoutes()
 
@@ -50,34 +70,68 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to parse TLS key pair: %w", err)
 	}
 
-	server := &http.Server{
-		Addr: ":" + s.port,
-		TLSConfig: &tls.Config{
-			Certificates:             []tls.Certificate{cert},
-			MinVersion:               tls.VersionTLS12,
-			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
-			PreferServerCipherSuites: true,
-		},
-		ReadTimeout:    24 * time.Hour,
-		WriteTimeout:   24 * time.Hour,
-		MaxHeaderBytes: 1 << 20,
+	s.httpServer.TLSConfig.Certificates = []tls.Certificate{cert}
+
+	// Create context for shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Start server in goroutine
+	go func() {
+		s.logger.Info("HTTPS server starting", "address", "https://0.0.0.0"+s.port)
+		if err := s.httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			s.logger.Fatal("Server failed", "error", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	<-ctx.Done()
+	s.logger.Info("Shutdown signal received, gracefully stopping server...")
+
+	// Give active connections 10 seconds to finish
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+		s.logger.Error("Server forced to shutdown", "error", err)
+		return err
 	}
 
-	s.logger.Info("HTTPS server starting", "address", "https://0.0.0.0"+s.port)
-
-	return server.ListenAndServeTLS("", "")
+	s.logger.Info("Server exited gracefully")
+	return nil
 }
 
 // registerRoutes maps URL paths to handlers.
+
 func (s *Server) registerRoutes() {
 	http.Handle("/", s.listHandler)
 	http.Handle("/upload", s.uploadHandler)
 
-	// For download, you might want:
-	// - /download/* → downloadHandler
-	// But currently we handle / and .zip in list/download handler.
-	// In real app, use a router like Chi or Gin for cleaner mapping.
+	// In registerRoutes():
+	http.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		w.Write(api.SwaggerSpec)
+	})
 
-	// For now, since download is triggered by path suffix, we handle it in listHandler.
-	// Alternatively, refactor to use a proper router.
+	http.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Swagger UI</title>
+        <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css" />
+      </head>
+      <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script>
+        <script>
+          SwaggerUIBundle({
+            url: '/swagger.yaml',
+            dom_id: '#swagger-ui',
+          })
+        </script>
+      </body>
+    </html>`))
+	})
 }

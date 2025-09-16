@@ -1,0 +1,15 @@
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+README.md
+*.md
+!.gitkeep
+**/testdata/
+**/*.test.go
+**/*_test.go
+**/coverage.out
+**/*.log
+node_modules/
+dist/
+build/
