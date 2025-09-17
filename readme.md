@@ -1,5 +1,8 @@
 # 🚀 Go File Share API
 
+![CI](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/ci.yml/badge.svg?branch=master)
+![Release](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/release.yml/badge.svg)
+
 ## 🌟 Overview
 
 The Go File Share API is a high-performance, secure file management system built with Go. It provides a robust, scalable solution for handling file operations over HTTPS with a clean, intuitive API. Built with clean architecture principles, it offers a flexible foundation that can be extended with different storage backends.
@@ -124,6 +127,30 @@ GET /health
 ## 🤝 Contributing
 
 Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## 🔁 CI/CD
+
+This repository uses GitHub Actions for continuous integration and delivery.
+
+- **CI Workflow**: `.github/workflows/ci.yml`
+  - Builds and tests the backend (Go) on push/PR to `master`/`main`.
+  - Builds the frontend (Vite/React) to ensure it compiles.
+  - Publishes the frontend `dist/` as a build artifact.
+
+- **Release Workflow**: `.github/workflows/release.yml`
+  - Triggers on tags that match `v*.*.*` (e.g., `v1.0.0`).
+  - Builds a static Linux-amd64 backend binary at `build/file-share-server`.
+  - Builds the frontend and packages it as `build/frontend-dist.tar.gz`.
+  - Creates a GitHub Release and uploads both artifacts automatically using `GITHUB_TOKEN`.
+
+### How to cut a release
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The Release workflow will build artifacts and publish a release on GitHub.
 
 ## 📄 License
 

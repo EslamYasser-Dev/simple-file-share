@@ -20,8 +20,7 @@ type Server struct {
 	port            string
 	tlsGenerator    ports.TLSCertGenerator
 	logger          ports.Logger
-	listHandler     http.Handler
-	downloadHandler http.Handler
+	rootHandler     http.Handler
 	uploadHandler   http.Handler
 	httpServer      *http.Server
 }
@@ -30,13 +29,13 @@ func NewServer(
 	port string,
 	tlsGen ports.TLSCertGenerator,
 	logger ports.Logger,
-	listHandler, downloadHandler, uploadHandler http.Handler,
+	rootHandler, uploadHandler http.Handler,
 ) *Server {
 	server := &http.Server{
 		Addr: ":" + port,
 		TLSConfig: &tls.Config{
 			Certificates:             nil,
-			MinVersion:               tls.VersionTLS12,
+			MinVersion:               tls.VersionTLS13,
 			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 			PreferServerCipherSuites: true,
 		},
@@ -49,8 +48,7 @@ func NewServer(
 		port:            port,
 		tlsGenerator:    tlsGen,
 		logger:          logger,
-		listHandler:     listHandler,
-		downloadHandler: downloadHandler,
+		rootHandler:     rootHandler,
 		uploadHandler:   uploadHandler,
 		httpServer:      server,
 	}
@@ -58,7 +56,8 @@ func NewServer(
 
 // Start initializes TLS and starts listening with graceful shutdown.
 func (s *Server) Start() error {
-	s.registerRoutes()
+	mux := s.registerRoutes()
+	s.httpServer.Handler = mux
 
 	certPEM, keyPEM, err := s.tlsGenerator.GenerateCert()
 	if err != nil {
@@ -78,7 +77,7 @@ func (s *Server) Start() error {
 
 	// Start server in goroutine
 	go func() {
-		s.logger.Info("HTTPS server starting", "address", "https://0.0.0.0"+s.port)
+		s.logger.Info("HTTPS server starting", "address", "https://0.0.0.0:"+s.port)
 		if err := s.httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			s.logger.Fatal("Server failed", "error", err)
 		}
@@ -101,19 +100,18 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// registerRoutes maps URL paths to handlers.
+// registerRoutes maps URL paths to handlers and returns a mux.
+func (s *Server) registerRoutes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/", s.rootHandler)
+	mux.Handle("/upload", s.uploadHandler)
 
-func (s *Server) registerRoutes() {
-	http.Handle("/", s.listHandler)
-	http.Handle("/upload", s.uploadHandler)
-
-	// In registerRoutes():
-	http.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Write(api.SwaggerSpec)
 	})
 
-	http.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`
     <!DOCTYPE html>
@@ -134,4 +132,5 @@ func (s *Server) registerRoutes() {
       </body>
     </html>`))
 	})
+	return mux
 }

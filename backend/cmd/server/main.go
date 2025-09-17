@@ -34,8 +34,7 @@ func main() {
 	uploadService := services.NewUploadService(fileRepo)
 
 	// === PRIMARY ADAPTERS (HTTP HANDLERS) ===
-	listHandler := handlers.NewListHandler(listService, cfg.GetPort())
-	downloadHandler := handlers.NewDownloadHandler(downloadService, zipService)
+	rootHandler := handlers.NewRootHandler(listService, downloadService, zipService, cfg.GetPort())
 	uploadHandler := handlers.NewUploadHandler(uploadService)
 
 	// === HTTP SERVER ===
@@ -43,8 +42,7 @@ func main() {
 		cfg.GetPort(),
 		tlsGenerator,
 		logger,
-		listHandler,
-		downloadHandler,
+		rootHandler,
 		uploadHandler,
 	)
 

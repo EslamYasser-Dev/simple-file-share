@@ -1,63 +1,64 @@
-.PHONY: proto build buildwin run test clean push-tag help
+.PHONY: proto build windows-build run run-backend run-frontend run-frontend-background test clean push-tag help
 
 # Metadata
 BIN_NAME        = bin/file-share
-MAIN_PATH       = backend/cmd/server/main.go
+REL_MAIN_PATH   = cmd/server/main.go
 DATE            := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 VERSION         ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 
 .DEFAULT_GOAL := help
 
-## Generate Go code from proto file
+## Generate Go code from proto file (optional)
 proto: ## Generate Go code from .proto
 	@echo "📦 Generating Go code from Proto file..."
 	@protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		$(PROTO_SRC)
 
-build:
+build: ## Build Linux amd64 binary into bin/
 	@echo "🔨 Building server..."
-	@go mod tidy
-	@GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.BuildDate=$(DATE)" \
-		-o $(BIN_NAME)-$(VERSION) $(MAIN_PATH)
+	@cd backend && go mod tidy
+	@cd backend && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.BuildDate=$(DATE)" \
+		-o ../$(BIN_NAME)-$(VERSION) $(REL_MAIN_PATH)
 	@echo "✅ Build complete: $(BIN_NAME)-$(VERSION)"
 
-windows-build:
+windows-build: ## Build Windows amd64 binary into bin/
 	@echo "🔨 Building server for Windows..."
-	@go mod tidy
-	@GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.BuildDate=$(DATE)" \
-		-o $(BIN_NAME).exe $(MAIN_PATH)
+	@cd backend && go mod tidy
+	@cd backend && GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.BuildDate=$(DATE)" \
+		-o ../$(BIN_NAME).exe $(REL_MAIN_PATH)
 	@echo "✅ Build complete: $(BIN_NAME).exe"
 
-## Run the ALPR server
+## Run the server
 run-backend: build 
 	@clear
-	@echo "🚀 Running ALPR server..."
+	@echo "🚀 Running file-share server..."
 	@./$(BIN_NAME)-$(VERSION)
 	@echo "👋 Server stopped."
 
-
-run-frontend-background: 
-	@& run-frontend
-
+## Alias for run-backend
+run: run-backend ## Alias: run server (builds first)
 
 
+run-frontend-background: ## Run frontend dev server in background
+	@$(MAKE) run-frontend &
 
-run-frontend:
-	@cd frontend
-	@npm install
-	@npm run dev
+
+
+
+run-frontend: ## Start frontend dev server
+	@(cd frontend && npm install && npm run dev)
 ## Run unit tests with coverage report
-test: ## Run tests with coverage report
+test: ## Run backend tests with coverage report
 	@echo "🧪 Running tests..."
-	@go test -v ./... -coverprofile=coverage.out
-	@go tool cover -html=coverage.out -o coverage.html
+	@(cd backend && go test -v ./... -coverprofile=coverage.out)
+	@cd backend && go tool cover -html=coverage.out -o ../coverage.html
 	@echo "✅ Tests complete. Open coverage.html for report."
 
 ## Remove binaries and coverage files
 clean: ## Clean all build artifacts
 	@echo "🧹 Cleaning build artifacts..."
-	@rm -rf bin/* coverage.out coverage.html
+	@rm -rf bin/* coverage.html backend/coverage.out
 	@echo "✅ Clean complete."
 
 ## Commit and push with tag
