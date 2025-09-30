@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"io/ioutil"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 )
@@ -31,6 +33,9 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional destination path can be provided via query param or multipart field 'path'
+	destPrefix := strings.TrimPrefix(r.URL.Query().Get("path"), "/")
+
 	reader, err := r.MultipartReader()
 	if err != nil {
 		http.Error(w, "Invalid multipart request", http.StatusBadRequest)
@@ -46,7 +51,26 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue // Skip malformed parts
 		}
-		parts = append(parts, &xhttp.UploadPartAdapter{Part: part})
+		if part.FileName() == "" {
+			// Possibly a form field such as 'path'
+			if part.FormName() == "path" {
+				if b, readErr := ioutil.ReadAll(part); readErr == nil {
+					destPrefix = strings.TrimPrefix(string(b), "/")
+				}
+			}
+			// Non-file part; continue
+			continue
+		}
+
+		filename := part.FileName()
+		if destPrefix != "" {
+			// Ensure we join safely and normalize to forward slashes for repository
+			filename = filepath.ToSlash(filepath.Join(destPrefix, filename))
+		}
+
+		// Wrap the part to override the filename reported to the service layer
+		// multipart.Part implements models.ReadCloser via embedded interfaces
+		parts = append(parts, &uploadPartWithName{name: filename, rc: part})
 	}
 
 	uploads, err := h.uploadService.Execute(parts)
@@ -57,6 +81,15 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	renderUploadResponse(w, uploads)
 }
+
+// uploadPartWithName allows overriding the filename while passing through content
+type uploadPartWithName struct {
+	name string
+	rc   models.ReadCloser
+}
+
+func (u *uploadPartWithName) Filename() string           { return u.name }
+func (u *uploadPartWithName) Content() models.ReadCloser { return u.rc }
 
 // renderUploadResponse generates HTML feedback for uploaded files.
 func renderUploadResponse(w http.ResponseWriter, uploads []models.FileUpload) {

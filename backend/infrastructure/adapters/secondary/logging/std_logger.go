@@ -22,6 +22,11 @@ func (l *StdLogger) Info(msg string, keysAndValues ...interface{}) {
 	l.log("INFO", msg, keysAndValues...)
 }
 
+// Warn logs a warning message.
+func (l *StdLogger) Warn(msg string, keysAndValues ...interface{}) {
+	l.log("WARN", msg, keysAndValues...)
+}
+
 // Error logs an error message.
 func (l *StdLogger) Error(msg string, keysAndValues ...interface{}) {
 	l.log("ERROR", msg, keysAndValues...)

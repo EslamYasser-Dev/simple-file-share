@@ -8,10 +8,11 @@ import (
 
 // EnvConfigProvider reads configuration from environment variables.
 type EnvConfigProvider struct {
-	port     string
-	username string
-	password string
-	rootDir  string
+	port      string
+	username  string
+	password  string
+	rootDir   string
+	enableTLS bool
 }
 
 // NewEnvConfigProvider creates a config provider with defaults.
@@ -22,10 +23,11 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 	}
 
 	return &EnvConfigProvider{
-		port:     getEnv("PORT", "22010"),
-		username: getEnv("USERNAME", "admin"),
-		password: getEnv("PASSWORD", "thisone"),
-		rootDir:  rootDir,
+		port:      getEnv("PORT", "22010"),
+		username:  getEnv("USERNAME", "admin"),
+		password:  getEnv("PASSWORD", "admin"),
+		rootDir:   rootDir,
+		enableTLS: false,
 	}, nil
 }
 
@@ -33,6 +35,10 @@ func (p *EnvConfigProvider) GetPort() string     { return p.port }
 func (p *EnvConfigProvider) GetUsername() string { return p.username }
 func (p *EnvConfigProvider) GetPassword() string { return p.password }
 func (p *EnvConfigProvider) GetRootDir() string  { return p.rootDir }
+func (p *EnvConfigProvider) EnableTLS() bool {
+	// In production, we enable TLS by default
+	return true
+}
 
 // getEnv returns env var value or fallback.
 func getEnv(key, fallback string) string {
