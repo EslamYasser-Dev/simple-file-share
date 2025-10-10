@@ -38,6 +38,7 @@ func main() {
 
 	// === SECONDARY ADAPTERS ===
 	fileRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
+	// TODO: Implement authentication provider selection based on configuration
 	// authProvider := auth.NewStaticAuthProvider(cfg.GetUsername(), cfg.GetPassword())
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 

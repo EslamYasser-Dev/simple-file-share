@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	_ "embed"
 
@@ -17,14 +16,14 @@ import (
 )
 
 type Server struct {
-	port            string
-	tlsGenerator    ports.TLSCertGenerator
-	logger          ports.Logger
-	rootHandler     http.Handler
-	uploadHandler   http.Handler
-	httpServer      *http.Server
-	staticDir       string // Directory to serve static files from
-	useTLS          bool   // Whether to use TLS/HTTPS
+	port          string
+	tlsGenerator  ports.TLSCertGenerator
+	logger        ports.Logger
+	rootHandler   http.Handler
+	uploadHandler http.Handler
+	httpServer    *http.Server
+	staticDir     string // Directory to serve static files from
+	useTLS        bool   // Whether to use TLS/HTTPS
 }
 
 func NewServer(
@@ -41,18 +40,18 @@ func NewServer(
 			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 			PreferServerCipherSuites: true,
 		},
-		ReadTimeout:    24 * time.Hour,
-		WriteTimeout:   24 * time.Hour,
-		MaxHeaderBytes: 1 << 20,
+		ReadTimeout:    DefaultReadTimeout,
+		WriteTimeout:   DefaultWriteTimeout,
+		MaxHeaderBytes: DefaultMaxHeaderBytes,
 	}
 
 	return &Server{
-		port:            port,
-		tlsGenerator:    tlsGen,
-		logger:          logger,
-		rootHandler:     rootHandler,
-		uploadHandler:   uploadHandler,
-		httpServer:      server,
+		port:          port,
+		tlsGenerator:  tlsGen,
+		logger:        logger,
+		rootHandler:   rootHandler,
+		uploadHandler: uploadHandler,
+		httpServer:    server,
 	}
 }
 
@@ -72,7 +71,7 @@ func (s *Server) ConfigureTLS(enableTLS bool) {
 
 func (s *Server) Start() error {
 	mux := s.registerRoutes()
-	
+
 	// If static directory is set and exists, serve static files
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); !os.IsNotExist(err) {
@@ -131,8 +130,8 @@ func (s *Server) Start() error {
 	<-ctx.Done()
 	s.logger.Info("Shutdown signal received, gracefully stopping server...")
 
-	// Give active connections 10 seconds to finish
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Give active connections time to finish
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
@@ -148,20 +147,20 @@ func (s *Server) Start() error {
 // loggingMiddleware adds logging for all requests
 func loggingMiddleware(next http.Handler, logger ports.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("Request started", 
-			"method", r.Method, 
+		logger.Info("Request started",
+			"method", r.Method,
 			"path", r.URL.Path,
 			"remote_addr", r.RemoteAddr)
-		
+
 		// Create a response writer that captures the status code
 		rw := &responseWriter{
 			ResponseWriter: w,
-			status:        http.StatusOK,
+			status:         http.StatusOK,
 		}
-		
+
 		// Serve the request
 		next.ServeHTTP(rw, r)
-		
+
 		// Log the response
 		logger.Info("Request completed",
 			"method", r.Method,
@@ -191,7 +190,7 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 func (s *Server) registerRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
-	
+
 	// Set up API routes
 	mux.Handle("/api/files", s.rootHandler)
 	mux.Handle("/api/files/", s.rootHandler)
