@@ -18,27 +18,27 @@ func NewStdLogger() *StdLogger {
 }
 
 // Info logs an informational message.
-func (l *StdLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l *StdLogger) Info(msg string, keysAndValues ...any) {
 	l.log("INFO", msg, keysAndValues...)
 }
 
 // Warn logs a warning message.
-func (l *StdLogger) Warn(msg string, keysAndValues ...interface{}) {
+func (l *StdLogger) Warn(msg string, keysAndValues ...any) {
 	l.log("WARN", msg, keysAndValues...)
 }
 
 // Error logs an error message.
-func (l *StdLogger) Error(msg string, keysAndValues ...interface{}) {
+func (l *StdLogger) Error(msg string, keysAndValues ...any) {
 	l.log("ERROR", msg, keysAndValues...)
 }
 
 // Fatal logs a fatal message and exits.
-func (l *StdLogger) Fatal(msg string, keysAndValues ...interface{}) {
+func (l *StdLogger) Fatal(msg string, keysAndValues ...any) {
 	log.Fatalf("FATAL: "+msg, keysAndValues...)
 }
 
 // log writes a formatted log entry.
-func (l *StdLogger) log(level, msg string, keysAndValues ...interface{}) {
+func (l *StdLogger) log(level, msg string, keysAndValues ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

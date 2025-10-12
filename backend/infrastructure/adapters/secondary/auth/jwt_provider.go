@@ -13,13 +13,11 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
-// JWTProviderImpl implements JWT token generation and validation
 type JWTProviderImpl struct {
 	secretKey []byte
 	expiry    time.Duration
 }
 
-// NewJWTProvider creates a new JWT provider with the given secret key and token expiry
 func NewJWTProvider(secretKey string, expiry time.Duration) *JWTProviderImpl {
 	return &JWTProviderImpl{
 		secretKey: []byte(secretKey),
@@ -27,13 +25,12 @@ func NewJWTProvider(secretKey string, expiry time.Duration) *JWTProviderImpl {
 	}
 }
 
-// GenerateToken creates a new JWT token for the given username
 func (p *JWTProviderImpl) GenerateToken(username string) (string, error) {
 	now := time.Now()
-	claims := map[string]interface{}{
+	claims := map[string]any{
 		"username": username,
-		"exp":      now.Add(p.expiry).Unix(),
-		"iat":      now.Unix(),
+		"exp":      now.Add(p.expiry).UnixMilli(),
+		"iat":      now.UnixMilli(),
 	}
 
 	// Create header
@@ -93,7 +90,7 @@ func (p *JWTProviderImpl) ValidateToken(tokenString string) (*ports.JWTClaims, e
 		return nil, fmt.Errorf("failed to decode claims: %w", err)
 	}
 
-	var claims map[string]interface{}
+	var claims map[string]any
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal claims: %w", err)
 	}

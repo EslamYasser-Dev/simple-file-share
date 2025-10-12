@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
 	config "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/config"
-	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/fs"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/logging"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/tls"
@@ -19,18 +19,17 @@ func main() {
 	var cfg ports.ConfigProvider
 	var err error
 
+	cfg, err = config.NewDevConfigProvider()
+	if err != nil {
+		log.Fatal("Failed to load development config: ", err)
+	}
+	log.Println("⚠️  Running in DEVELOPMENT mode with TLS disabled")
+	
 	if os.Getenv("APP_ENV") == "production" {
 		cfg, err = config.NewEnvConfigProvider()
 		if err != nil {
 			log.Fatal("Failed to load config: ", err)
 		}
-	} else {
-		// Use development configuration
-		cfg, err = config.NewDevConfigProvider()
-		if err != nil {
-			log.Fatal("Failed to load development config: ", err)
-		}
-		log.Println("⚠️  Running in DEVELOPMENT mode with TLS disabled")
 	}
 
 	// === LOGGING ===

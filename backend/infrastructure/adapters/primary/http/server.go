@@ -58,8 +58,7 @@ func NewServer(
 // Start initializes TLS and starts listening with graceful shutdown.
 // SetStaticFileServer configures the server to serve static files from the specified directory.
 // If the directory doesn't exist, this is a no-op.
-// SetStaticFileServer configures the server to serve static files from the specified directory.
-// If the directory doesn't exist, this is a no-op.
+
 func (s *Server) SetStaticFileServer(dir string) {
 	s.staticDir = dir
 }
