@@ -1,4 +1,4 @@
-# 🚀 Simple File Share
+# Simple File Share
 
 ![CI](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/ci.yml/badge.svg?branch=master)
 ![Release](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/release.yml/badge.svg)
