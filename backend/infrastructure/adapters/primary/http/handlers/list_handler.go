@@ -4,44 +4,32 @@ import (
 	"net/http"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
-// ListHandler handles requests to list directory contents.
 type ListHandler struct {
 	listService *services.ListFilesService
-	port        string
 }
 
-// NewListHandler creates a new ListHandler.
-func NewListHandler(listService *services.ListFilesService, port string) *ListHandler {
-	return &ListHandler{
-		listService: listService,
-		port:        port,
-	}
+func NewListHandler(listService *services.ListFilesService) *ListHandler {
+	return &ListHandler{listService: listService}
 }
 
-// ServeHTTP serves directory listing or delegates if not a directory.
 func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := cleanPath(r.URL.Path)
-	if containsPathTraversal(path) {
-		http.Error(w, "Path traversal detected", http.StatusForbidden)
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	pageData, err := h.listService.Execute(path)
+	pageData, err := h.listService.Execute(pathFromQuery(r))
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		respondWithError(w, err)
 		return
 	}
-
 	if pageData == nil {
-		// Not a directory — should be handled by download handler in router
-		http.Error(w, "Not a directory", http.StatusNotFound)
+		respondJSON(w, http.StatusNotFound, map[string]string{"error": "not a directory"})
 		return
 	}
 
-	pageData.Port = h.port
-	// if err := frontend.Tpl.Execute(w, pageData); err != nil {
-	// 	http.Error(w, "Template render failed", http.StatusInternalServerError)
-	// }
+	respondJSON(w, http.StatusOK, dto.FromFileInfos(pageData.Files))
 }

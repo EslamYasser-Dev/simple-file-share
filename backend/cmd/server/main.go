@@ -8,70 +8,90 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	config "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/config"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/fs"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/logging"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/memory"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/tls"
 )
 
 func main() {
-	// === CONFIG ===
 	var cfg ports.ConfigProvider
 	var err error
 
-	cfg, err = config.NewDevConfigProvider()
-	if err != nil {
-		log.Fatal("Failed to load development config: ", err)
-	}
-	log.Println("⚠️  Running in DEVELOPMENT mode with TLS disabled")
-	
 	if os.Getenv("APP_ENV") == "production" {
 		cfg, err = config.NewEnvConfigProvider()
 		if err != nil {
-			log.Fatal("Failed to load config: ", err)
+			log.Fatal("Failed to load production config: ", err)
 		}
+		log.Println("Running in PRODUCTION mode")
+	} else {
+		cfg, err = config.NewDevConfigProvider()
+		if err != nil {
+			log.Fatal("Failed to load development config: ", err)
+		}
+		log.Println("Running in DEVELOPMENT mode (auth disabled, TLS disabled)")
 	}
 
-	// === LOGGING ===
 	logger := logging.NewStdLogger()
 
-	// === SECONDARY ADAPTERS ===
-	fileRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
-	// TODO: Implement authentication provider selection based on configuration
-	// authProvider := auth.NewStaticAuthProvider(cfg.GetUsername(), cfg.GetPassword())
+	indexRepo := memory.NewFileIndexRepository()
+
+	localRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
+	fileRepo := fs.NewIndexedFileRepository(localRepo, indexRepo)
+
+	rebuildService := services.NewRebuildIndexService(indexRepo)
+	if err := rebuildService.Execute(cfg.GetRootDir(), fs.WalkRoot); err != nil {
+		logger.Warn("File index rebuild failed", "error", err)
+	} else {
+		logger.Info("File search index ready")
+	}
+
+	authProvider := auth.NewStaticAuthProvider(cfg.GetUsername(), cfg.GetPassword())
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 
-	// === APPLICATION SERVICES ===
 	listService := services.NewListFilesService(fileRepo)
 	downloadService := services.NewDownloadFileService(fileRepo)
 	zipService := services.NewDownloadZipService(fileRepo)
 	uploadService := services.NewUploadService(fileRepo)
+	createDirService := services.NewCreateDirectoryService(fileRepo)
+	deleteService := services.NewDeletePathService(fileRepo)
+	infoService := services.NewGetFileInfoService(fileRepo)
+	searchService := services.NewSearchFilesService(indexRepo)
 
-	// === PRIMARY ADAPTERS (HTTP HANDLERS) ===
-	rootHandler := handlers.NewRootHandler(listService, downloadService, zipService, cfg.GetPort())
-	uploadHandler := handlers.NewUploadHandler(uploadService)
+	listHandler := handlers.NewListHandler(listService)
+	deleteHandler := handlers.NewDeleteHandler(deleteService)
+	filesHandler := handlers.NewFilesHandler(listHandler, deleteHandler)
 
-	// === HTTP SERVER ===
+	routeHandlers := xhttp.RouteHandlers{
+		Files:     filesHandler,
+		Download:  handlers.NewDownloadHandler(downloadService, zipService),
+		Upload:    handlers.NewUploadHandler(uploadService),
+		Directory: handlers.NewDirectoryHandler(createDirService),
+		FileInfo:  handlers.NewFileInfoHandler(infoService),
+		Search:    handlers.NewSearchHandler(searchService),
+		Health:    handlers.NewHealthHandler(),
+	}
+
 	server := xhttp.NewServer(
 		cfg.GetPort(),
 		tlsGenerator,
 		logger,
-		rootHandler,
-		uploadHandler,
+		routeHandlers,
+		authProvider,
+		cfg.EnableAuth(),
+		cfg.GetMaxUploadBytes(),
 	)
+	server.ConfigureTLS(cfg.EnableTLS())
 
-	// In development, we'll serve the frontend files directly
 	if os.Getenv("APP_ENV") != "production" {
-		// For development, serve the built frontend files if present.
-		// The binary is executed from the project root (via `make run`),
-		// so the correct relative path is "frontend/dist".
 		frontendDir := "frontend/dist"
 		if _, err := os.Stat(frontendDir); !os.IsNotExist(err) {
 			server.SetStaticFileServer(frontendDir)
 		}
 	}
 
-	// === START ===
 	if err := server.Start(); err != nil {
 		logger.Fatal("Server failed", "error", err)
 	}

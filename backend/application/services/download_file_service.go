@@ -4,6 +4,7 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
 
 type DownloadFileService struct {
@@ -15,7 +16,13 @@ func NewDownloadFileService(fileRepo ports.FileRepository) *DownloadFileService 
 }
 
 func (s *DownloadFileService) Execute(path string) (models.ReadCloser, string, error) {
-	exists, err := s.fileRepo.FileExists(path)
+	fp, err := valueobjects.NewFilePath(path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	rel := fp.Relative()
+	exists, err := s.fileRepo.FileExists(rel)
 	if err != nil {
 		return nil, "", err
 	}
@@ -23,13 +30,13 @@ func (s *DownloadFileService) Execute(path string) (models.ReadCloser, string, e
 		return nil, "", &errors.NotFoundError{Path: path}
 	}
 
-	isDir, err := s.fileRepo.IsDirectory(path)
+	isDir, err := s.fileRepo.IsDirectory(rel)
 	if err != nil {
 		return nil, "", err
 	}
 	if isDir {
-		return nil, "", nil // Delegate to list or zip
+		return nil, "", nil
 	}
 
-	return s.fileRepo.ServeFile(path)
+	return s.fileRepo.ServeFile(rel)
 }

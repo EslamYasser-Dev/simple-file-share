@@ -15,55 +15,62 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
+type RouteHandlers struct {
+	Files      http.Handler
+	Download   http.Handler
+	Upload     http.Handler
+	Directory  http.Handler
+	FileInfo   http.Handler
+	Search     http.Handler
+	Health     http.Handler
+}
+
 type Server struct {
-	port          string
-	tlsGenerator  ports.TLSCertGenerator
-	logger        ports.Logger
-	rootHandler   http.Handler
-	uploadHandler http.Handler
-	httpServer    *http.Server
-	staticDir     string // Directory to serve static files from
-	useTLS        bool   // Whether to use TLS/HTTPS
+	port            string
+	tlsGenerator    ports.TLSCertGenerator
+	logger          ports.Logger
+	handlers        RouteHandlers
+	authProvider    ports.AuthProvider
+	enableAuth      bool
+	maxUploadBytes  int64
+	httpServer      *http.Server
+	staticDir       string
+	useTLS          bool
 }
 
 func NewServer(
 	port string,
 	tlsGen ports.TLSCertGenerator,
 	logger ports.Logger,
-	rootHandler, uploadHandler http.Handler,
+	handlers RouteHandlers,
+	authProvider ports.AuthProvider,
+	enableAuth bool,
+	maxUploadBytes int64,
 ) *Server {
-	server := &http.Server{
-		Addr: ":" + port,
-		TLSConfig: &tls.Config{
-			Certificates:             nil,
-			MinVersion:               tls.VersionTLS13,
-			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
-			PreferServerCipherSuites: true,
-		},
-		ReadTimeout:    DefaultReadTimeout,
-		WriteTimeout:   DefaultWriteTimeout,
-		MaxHeaderBytes: DefaultMaxHeaderBytes,
-	}
-
 	return &Server{
-		port:          port,
-		tlsGenerator:  tlsGen,
-		logger:        logger,
-		rootHandler:   rootHandler,
-		uploadHandler: uploadHandler,
-		httpServer:    server,
+		port:           port,
+		tlsGenerator:   tlsGen,
+		logger:         logger,
+		handlers:       handlers,
+		authProvider:   authProvider,
+		enableAuth:     enableAuth,
+		maxUploadBytes: maxUploadBytes,
+		httpServer: &http.Server{
+			Addr: ":" + port,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS13,
+			},
+			ReadTimeout:    DefaultReadTimeout,
+			WriteTimeout:   DefaultWriteTimeout,
+			MaxHeaderBytes: DefaultMaxHeaderBytes,
+		},
 	}
 }
-
-// Start initializes TLS and starts listening with graceful shutdown.
-// SetStaticFileServer configures the server to serve static files from the specified directory.
-// If the directory doesn't exist, this is a no-op.
 
 func (s *Server) SetStaticFileServer(dir string) {
 	s.staticDir = dir
 }
 
-// ConfigureTLS enables or disables TLS/HTTPS for the server
 func (s *Server) ConfigureTLS(enableTLS bool) {
 	s.useTLS = enableTLS
 }
@@ -71,48 +78,39 @@ func (s *Server) ConfigureTLS(enableTLS bool) {
 func (s *Server) Start() error {
 	mux := s.registerRoutes()
 
-	// If static directory is set and exists, serve static files
 	if s.staticDir != "" {
 		if _, err := os.Stat(s.staticDir); !os.IsNotExist(err) {
 			fs := http.FileServer(http.Dir(s.staticDir))
 			mux.Handle("/", fs)
-			s.logger.Info("Serving static files from", "directory", s.staticDir)
+			s.logger.Info("Serving static files", "directory", s.staticDir)
 		} else {
-			s.logger.Warn("Static directory does not exist, not serving static files", "directory", s.staticDir)
+			s.logger.Warn("Static directory missing", "directory", s.staticDir)
 		}
 	}
 
 	s.httpServer.Handler = mux
 
-	// Only generate and configure TLS if enabled
 	if s.useTLS {
 		certPEM, keyPEM, err := s.tlsGenerator.GenerateCert()
 		if err != nil {
-			return fmt.Errorf("failed to generate TLS certificate: %w", err)
+			return fmt.Errorf("generate TLS cert: %w", err)
 		}
-
 		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
-			return fmt.Errorf("failed to parse TLS key pair: %w", err)
+			return fmt.Errorf("parse TLS key pair: %w", err)
 		}
-
 		s.httpServer.TLSConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	// Create context for shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Start server in goroutine
 	go func() {
-		// Start with the appropriate protocol
 		protocol := "http"
 		if s.useTLS {
 			protocol = "https"
 		}
-		s.logger.Info("Server starting",
-			"protocol", protocol,
-			"address", "0.0.0.0:"+s.port)
+		s.logger.Info("Server starting", "protocol", protocol, "address", "0.0.0.0:"+s.port)
 
 		var err error
 		if s.useTLS {
@@ -125,16 +123,14 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// Wait for interrupt signal
 	<-ctx.Done()
-	s.logger.Info("Shutdown signal received, gracefully stopping server...")
+	s.logger.Info("Shutdown signal received")
 
-	// Give active connections time to finish
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-		s.logger.Error("Server forced to shutdown", "error", err)
+		s.logger.Error("Forced shutdown", "error", err)
 		return err
 	}
 
@@ -142,34 +138,68 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// registerRoutes maps URL paths to handlers and returns a mux.
-// loggingMiddleware adds logging for all requests
-func loggingMiddleware(next http.Handler, logger ports.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("Request started",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"remote_addr", r.RemoteAddr)
+func (s *Server) registerRoutes() *http.ServeMux {
+	mux := http.NewServeMux()
 
-		// Create a response writer that captures the status code
-		rw := &responseWriter{
-			ResponseWriter: w,
-			status:         http.StatusOK,
-		}
+	apiChain := s.apiMiddleware()
+	mux.Handle("/api/files", apiChain(s.handlers.Files))
+	mux.Handle("/api/files/download", apiChain(s.handlers.Download))
+	mux.Handle("/api/files/info", apiChain(s.handlers.FileInfo))
+	mux.Handle("/api/files/search", apiChain(s.handlers.Search))
+	mux.Handle("/api/upload", chainMiddleware(s.handlers.Upload, append(s.apiMiddlewareFuncs(), MaxBytesMiddleware(s.maxUploadBytes))...))
+	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
 
-		// Serve the request
-		next.ServeHTTP(rw, r)
+	mux.Handle("/health", chainMiddleware(s.handlers.Health, corsMiddleware, func(next http.Handler) http.Handler {
+		return loggingMiddleware(next, s.logger)
+	}))
 
-		// Log the response
-		logger.Info("Request completed",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rw.status,
-			"bytes", rw.bytesWritten)
+	mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		_, _ = w.Write(api.SwaggerSpec)
 	})
+
+	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>Swagger UI</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/></head>
+<body><div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script>
+<script>SwaggerUIBundle({url:'/swagger.yaml',dom_id:'#swagger-ui'})</script>
+</body></html>`))
+	})
+
+	if s.staticDir == "" {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" {
+				http.Redirect(w, r, "/swagger", http.StatusFound)
+				return
+			}
+			http.NotFound(w, r)
+		})
+	}
+
+	return mux
 }
 
-// responseWriter wraps http.ResponseWriter to capture the status code
+func (s *Server) apiMiddleware() func(http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return chainMiddleware(h, s.apiMiddlewareFuncs()...)
+	}
+}
+
+func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
+	middlewares := []func(http.Handler) http.Handler{
+		corsMiddleware,
+		func(next http.Handler) http.Handler {
+			return loggingMiddleware(next, s.logger)
+		},
+	}
+	if s.enableAuth && s.authProvider != nil {
+		middlewares = append(middlewares, AuthMiddleware(s.authProvider))
+	}
+	return middlewares
+}
+
 type responseWriter struct {
 	http.ResponseWriter
 	status       int
@@ -185,56 +215,4 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
 	return n, err
-}
-
-func (s *Server) registerRoutes() *http.ServeMux {
-	mux := http.NewServeMux()
-
-	// Set up API routes
-	mux.Handle("/api/files", s.rootHandler)
-	mux.Handle("/api/files/", s.rootHandler)
-	mux.Handle("/api/files/download", s.rootHandler)
-	mux.Handle("/api/upload", s.uploadHandler)
-
-	// Swagger documentation
-	mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/yaml")
-		if _, err := w.Write(api.SwaggerSpec); err != nil {
-			s.logger.Error("Failed to write swagger spec", "error", err)
-		}
-	})
-
-	// Swagger UI
-	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		html := `<!DOCTYPE html>
-    <html>
-      <head>
-        <title>Swagger UI</title>
-        <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css" />
-      </head>
-      <body>
-        <div id="swagger-ui"></div>
-        <script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script>
-        <script>
-          SwaggerUIBundle({
-            url: '/swagger.yaml',
-            dom_id: '#swagger-ui',
-          });
-        </script>
-      </body>
-    </html>`
-		if _, err := w.Write([]byte(html)); err != nil {
-			s.logger.Error("Failed to write Swagger UI", "error", err)
-		}
-	})
-
-	// Fallback root handler when no static files are being served
-	if s.staticDir == "" {
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// Redirect to Swagger UI as a helpful default in development
-			http.Redirect(w, r, "/swagger", http.StatusFound)
-		})
-	}
-	return mux
 }

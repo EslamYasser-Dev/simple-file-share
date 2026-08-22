@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { api } from '../services/api';
 import type { ApiResponse } from '../services/api';
-import { MAX_FILE_SIZE, ALLOWED_FILE_TYPES } from '../config';
+import { MAX_FILE_SIZE, ALLOWED_FILE_TYPES } from '../config/index';
 
 export interface FileItem {
   name: string;
@@ -73,6 +73,20 @@ export const useFileOperations = () => {
     }
   }, []);
 
+  const searchFiles = useCallback(async (query: string): Promise<FileItem[] | null> => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await api.searchFiles(query);
+      if (error) throw new Error(error);
+      return data || [];
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const createDirectory = useCallback(async (path: string): Promise<ApiResponse> => {
     setIsLoading(true);
     try {
@@ -109,6 +123,7 @@ export const useFileOperations = () => {
     uploadProgress,
     uploadFile,
     fetchFiles,
+    searchFiles,
     createDirectory,
     deleteItem,
     clearError,

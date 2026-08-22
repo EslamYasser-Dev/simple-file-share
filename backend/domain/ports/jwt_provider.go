@@ -1,12 +1,10 @@
 package ports
 
-import "time"
-
 // JWTClaims represents the claims stored in a JWT token
 type JWTClaims struct {
-	Username  string    `json:"username"`
-	ExpiresAt time.Time `json:"exp"`
-	IssuedAt  time.Time `json:"iat"`
+	Username  string `json:"username"`
+	ExpiresAt int64  `json:"exp"`
+	IssuedAt  int64  `json:"iat"`
 }
 
 type JWTProvider interface {

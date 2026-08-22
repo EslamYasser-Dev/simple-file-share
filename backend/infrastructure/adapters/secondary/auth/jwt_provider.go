@@ -29,8 +29,8 @@ func (p *JWTProviderImpl) GenerateToken(username string) (string, error) {
 	now := time.Now()
 	claims := map[string]any{
 		"username": username,
-		"exp":      now.Add(p.expiry).UnixMilli(),
-		"iat":      now.UnixMilli(),
+		"exp":      now.Add(p.expiry).Unix(),
+		"iat":      now.Unix(),
 	}
 
 	// Create header
@@ -122,8 +122,8 @@ func (p *JWTProviderImpl) ValidateToken(tokenString string) (*ports.JWTClaims, e
 
 	return &ports.JWTClaims{
 		Username:  username,
-		ExpiresAt: expiresAt,
-		IssuedAt:  issuedAt,
+		ExpiresAt: expiresAt.Unix(),
+		IssuedAt:  issuedAt.Unix(),
 	}, nil
 }
 

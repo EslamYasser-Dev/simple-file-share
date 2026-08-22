@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { api, type ApiResponse } from '../services/api';
-import { MAX_FILE_SIZE, ALLOWED_FILE_TYPES } from '../config';
+import {ALLOWED_FILE_TYPES,MAX_FILE_SIZE}  from '../config/index';
 
 export interface FileItem {
   name: string;

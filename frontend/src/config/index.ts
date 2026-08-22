@@ -1,8 +1,6 @@
 // API Configuration
 export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
-
-// File upload configuration
-export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 export const ALLOWED_FILE_TYPES = [
   // Documents
   'application/pdf',

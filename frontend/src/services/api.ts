@@ -63,6 +63,15 @@ export const api = {
     return handleResponse(response);
   },
 
+  searchFiles: async (query: string, limit = 50): Promise<ApiResponse<FileItem[]>> => {
+    const url = new URL(`${API_BASE_URL}/api/files/search`);
+    url.searchParams.append('q', query);
+    url.searchParams.append('limit', String(limit));
+
+    const response = await fetch(url.toString());
+    return handleResponse(response);
+  },
+
   // Create directory
   createDirectory: async (path: string): Promise<ApiResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/directories`, {

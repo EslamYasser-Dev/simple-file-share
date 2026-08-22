@@ -1,46 +1,45 @@
 # =============================
 # BUILD STAGE
 # =============================
-FROM golang:latest-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git
-COPY go.mod go.sum ./
+RUN apk add --no-cache git ca-certificates
+
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
-# Copy source
-COPY . .
+COPY backend/ .
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" \
+    -ldflags="-s -w" \
     -o /file-server ./cmd/server
 
 # =============================
-# FINAL STAGE (SCRATCH)
+# RUNTIME STAGE
 # =============================
-FROM scratch
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates wget \
+    && adduser -D -u 65534 -h /nonexistent nobody
 
 COPY --from=builder /file-server /file-server
 
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid 65534 \
-    nobody
-
+WORKDIR /data
 VOLUME ["/data"]
+
+ENV APP_ENV=production \
+    PORT=22010 \
+    ROOT_DIR=/data \
+    ENABLE_TLS=false \
+    ENABLE_AUTH=true
 
 EXPOSE 22010
 
 USER nobody
 
-# Healthcheck (we'll implement /health endpoint soon!)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost:22010/health || exit 1
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:22010/health || exit 1
 
-# Entrypoint
 ENTRYPOINT ["/file-server"]
