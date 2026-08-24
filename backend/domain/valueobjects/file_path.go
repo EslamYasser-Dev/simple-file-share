@@ -20,16 +20,16 @@ func NewFilePath(path string) (FilePath, error) {
 
 	normalized := filepath.ToSlash(strings.TrimPrefix(path, "/"))
 
-	if normalized == "" || normalized == "/" {
+	if normalized == "" {
 		return FilePath{value: "/"}, nil
 	}
 
-	if strings.Contains(normalized, "..") {
-		return FilePath{}, errors.NewValidationError("path", path, "path traversal detected")
-	}
-
-	if filepath.IsAbs(normalized) && normalized != "/" {
-		return FilePath{}, errors.NewValidationError("path", path, "absolute paths not allowed")
+	// Reject any exact ".." path segment (traversal). This still allows
+	// legitimate names that merely contain dots, e.g. "backup..2024.tar".
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == ".." {
+			return FilePath{}, errors.NewValidationError("path", path, "path traversal detected")
+		}
 	}
 
 	dangerous := []string{"<", ">", ":", "\"", "|", "?", "*"}

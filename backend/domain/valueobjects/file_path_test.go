@@ -11,6 +11,10 @@ func TestNewFilePath(t *testing.T) {
 		{"root", "/", false},
 		{"simple", "docs/readme.txt", false},
 		{"traversal", "../../etc/passwd", true},
+		{"traversal middle", "docs/../../etc/passwd", true},
+		{"traversal suffix", "docs/..", true},
+		{"dots in name allowed", "backup..2024.tar", false},
+		{"dot segment", "docs/./file.txt", false},
 		{"empty", "", true},
 	}
 

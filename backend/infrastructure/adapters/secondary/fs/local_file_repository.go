@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,26 +26,23 @@ func NewLocalFileRepository(rootDir string) *LocalFileRepository {
 
 func (r *LocalFileRepository) resolve(path string) (string, error) {
 	cleaned := filepath.FromSlash(strings.TrimPrefix(path, "/"))
-	if strings.Contains(cleaned, "..") {
-		return "", errors.NewValidationError("path", path, "path traversal detected")
+
+	// Defense in depth: reject any exact ".." segment before joining.
+	for _, segment := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		if segment == ".." {
+			return "", errors.NewValidationError("path", path, "path traversal detected")
+		}
 	}
 
 	fullPath := filepath.Join(r.rootDir, cleaned)
 
-	absRoot, err := filepath.Abs(r.rootDir)
-	if err != nil {
-		return "", fmt.Errorf("resolve root: %w", err)
-	}
-	absPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-
-	if absPath != absRoot && !strings.HasPrefix(absPath, absRoot+string(os.PathSeparator)) {
+	// Ensure the joined path stays within the root directory.
+	if fullPath != r.rootDir &&
+		!strings.HasPrefix(fullPath, r.rootDir+string(os.PathSeparator)) {
 		return "", errors.NewValidationError("path", path, "path escapes root directory")
 	}
 
-	return absPath, nil
+	return fullPath, nil
 }
 
 func (r *LocalFileRepository) ListDirectory(path string) ([]*models.FileInfo, error) {
@@ -179,7 +175,7 @@ func (r *LocalFileRepository) DeletePath(path string) error {
 }
 
 func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (int64, error) {
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	fullPath, err := r.resolve(path)
 	if err != nil {
@@ -194,9 +190,19 @@ func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (
 	if err != nil {
 		return 0, err
 	}
-	defer dst.Close()
 
-	return io.Copy(dst, reader)
+	written, copyErr := io.Copy(dst, reader)
+	closeErr := dst.Close()
+	if copyErr != nil {
+		// Remove the partial file so failed uploads don't leave corrupt data.
+		_ = os.Remove(fullPath)
+		return written, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(fullPath)
+		return written, closeErr
+	}
+	return written, nil
 }
 
 func (r *LocalFileRepository) ZipDirectory(root string) (models.ReadCloser, error) {
