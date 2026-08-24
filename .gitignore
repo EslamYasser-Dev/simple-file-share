@@ -22,4 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build artifacts
 bin/
+build/
+coverage.html
+backend/coverage.out
+*.tar.gz

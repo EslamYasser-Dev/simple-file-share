@@ -1,8 +1,8 @@
 .git
 .gitignore
-Dockerfile
+dockerfile
 docker-compose.yml
-README.md
+readme.md
 *.md
 !.gitkeep
 **/testdata/
@@ -13,3 +13,8 @@ README.md
 node_modules/
 dist/
 build/
+certs/
+frontend/node_modules/
+frontend/dist/
+backend/coverage.out
+coverage.html

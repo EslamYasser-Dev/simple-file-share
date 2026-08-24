@@ -21,8 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # =============================
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates wget \
-    && adduser -D -u 65534 -h /nonexistent nobody
+RUN apk add --no-cache ca-certificates wget
 
 COPY --from=builder /file-server /file-server
 

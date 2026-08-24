@@ -1,4 +1,4 @@
-it cpackage xhttp
+package xhttp
 
 import "time"
 
