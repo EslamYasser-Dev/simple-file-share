@@ -1,10 +1,46 @@
 @import "tailwindcss";
-:root {
-  color-scheme: light dark;
+
+@theme {
+  --animate-spin: spin 1s linear infinite;
+  --animate-slide-in: slide-in 0.2s ease-out;
 }
 
-html, body, #root {
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+html,
+body,
+#root {
   height: 100%;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334159 #0f172a;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #334159;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 body {
@@ -12,8 +48,17 @@ body {
   padding: 0;
   background: #0b0b0b;
   color: #f3f4f6;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button {
   cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }

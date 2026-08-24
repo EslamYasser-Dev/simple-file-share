@@ -1,33 +1,10 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import { api, type ApiResponse } from '../services/api';
-import {ALLOWED_FILE_TYPES,MAX_FILE_SIZE}  from '../config/index';
+import { api } from '../services/api';
+import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE } from '../config/index';
+import { FileContext, type FileItem } from './fileContext';
 
-export interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDir: boolean;
-  modified: string;
-  mimeType?: string;
-}
-
-interface FileContextType {
-  files: FileItem[];
-  currentPath: string;
-  isLoading: boolean;
-  error: string | null;
-  uploadProgress: number;
-  uploadFile: (file: File, path?: string) => Promise<ApiResponse>;
-  fetchFiles: (path?: string) => Promise<void>;
-  createDirectory: (path: string) => Promise<ApiResponse>;
-  deleteItem: (path: string) => Promise<ApiResponse>;
-  navigateToPath: (path: string) => void;
-  goUp: () => void;
-  clearError: () => void;
-}
-
-const FileContext = createContext<FileContextType | undefined>(undefined);
+export { FileContext, type FileContextType, type FileItem } from './fileContext';
 
 export const FileProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -69,7 +46,7 @@ export const FileProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const result = await api.uploadFile(file, path);
       if (result.error) throw new Error(result.error);
-      
+
       // Refresh the current directory
       await fetchFiles(currentPath);
       return result;
@@ -134,12 +111,4 @@ export const FileProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       {children}
     </FileContext.Provider>
   );
-};
-
-export const useFiles = (): FileContextType => {
-  const context = useContext(FileContext);
-  if (context === undefined) {
-    throw new Error('useFiles must be used within a FileProvider');
-  }
-  return context;
 };

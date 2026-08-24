@@ -9,7 +9,7 @@ export interface FileItem {
   mimeType?: string;
 }
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   message?: string;
@@ -24,7 +24,7 @@ async function handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
   try {
     const data = await response.json();
     return { data };
-  } catch (error) {
+  } catch {
     return { error: 'Failed to parse response' };
   }
 }
