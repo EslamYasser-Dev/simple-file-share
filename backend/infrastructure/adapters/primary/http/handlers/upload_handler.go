@@ -46,7 +46,11 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			continue
+			// A non-EOF error means the stream is broken; retrying would
+			// loop forever, so fail the request instead.
+			closeParts(parts)
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed multipart request"})
+			return
 		}
 
 		if part.FileName() == "" {
@@ -96,3 +100,10 @@ type uploadPartWithName struct {
 
 func (u *uploadPartWithName) Filename() string           { return u.name }
 func (u *uploadPartWithName) Content() models.ReadCloser { return u.rc }
+
+// closeParts releases any streams not handed off to the upload service.
+func closeParts(parts []models.UploadPart) {
+	for _, p := range parts {
+		_ = p.Content().Close()
+	}
+}
