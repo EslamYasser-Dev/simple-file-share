@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
@@ -16,28 +15,18 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/tls"
 )
 
+const productionEnv = "production"
+
 func main() {
-	var cfg ports.ConfigProvider
-	var err error
-
-	if os.Getenv("APP_ENV") == "production" {
-		cfg, err = config.NewEnvConfigProvider()
-		if err != nil {
-			log.Fatal("Failed to load production config: ", err)
-		}
-		log.Println("Running in PRODUCTION mode")
-	} else {
-		cfg, err = config.NewDevConfigProvider()
-		if err != nil {
-			log.Fatal("Failed to load development config: ", err)
-		}
-		log.Println("Running in DEVELOPMENT mode (auth disabled, TLS disabled)")
-	}
-
 	logger := logging.NewStdLogger()
 
-	indexRepo := memory.NewFileIndexRepository()
+	cfg, err := loadConfig(logger)
+	if err != nil {
+		logger.Fatal("Failed to load config", "error", err)
+		return
+	}
 
+	indexRepo := memory.NewFileIndexRepository()
 	localRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
 	fileRepo := fs.NewIndexedFileRepository(localRepo, indexRepo)
 
@@ -85,14 +74,21 @@ func main() {
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
 
-	if os.Getenv("APP_ENV") != "production" {
-		frontendDir := "frontend/dist"
-		if _, err := os.Stat(frontendDir); !os.IsNotExist(err) {
-			server.SetStaticFileServer(frontendDir)
-		}
+	if os.Getenv("APP_ENV") != productionEnv {
+		server.SetStaticFileServer("frontend/dist")
 	}
 
 	if err := server.Start(); err != nil {
 		logger.Fatal("Server failed", "error", err)
 	}
+}
+
+// loadConfig selects the config provider based on APP_ENV.
+func loadConfig(logger ports.Logger) (ports.ConfigProvider, error) {
+	if os.Getenv("APP_ENV") == productionEnv {
+		logger.Info("Running in PRODUCTION mode")
+		return config.NewEnvConfigProvider()
+	}
+	logger.Info("Running in DEVELOPMENT mode (auth disabled, TLS disabled)")
+	return config.NewDevConfigProvider()
 }

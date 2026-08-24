@@ -77,13 +77,6 @@ func resolveBoolEnv(key string, defaultValue bool) bool {
 	return raw != "false" && raw != "0"
 }
 
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
 func getEnvFirst(keys []string, fallback string) string {
 	for _, key := range keys {
 		if value := os.Getenv(key); value != "" {

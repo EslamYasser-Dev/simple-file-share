@@ -41,7 +41,7 @@ func (r *FileIndexRepository) Search(query string, limit int) ([]*models.FileInf
 		info  *models.FileInfo
 		score int
 	}
-	var matches []scored
+	matches := make([]scored, 0, len(r.entries))
 
 	for _, info := range r.entries {
 		name := strings.ToLower(info.Name)
@@ -65,8 +65,8 @@ func (r *FileIndexRepository) Search(query string, limit int) ([]*models.FileInf
 
 	results := make([]*models.FileInfo, len(matches))
 	for i, m := range matches {
-		copy := *m.info
-		results[i] = &copy
+		cloned := *m.info
+		results[i] = &cloned
 	}
 	return results, nil
 }
@@ -96,11 +96,11 @@ func (r *FileIndexRepository) Upsert(info *models.FileInfo) error {
 	}
 
 	path := normalizeIndexPath(info.Path)
-	copy := *info
-	copy.Path = path
+	cloned := *info
+	cloned.Path = path
 
 	r.mu.Lock()
-	r.entries[path] = &copy
+	r.entries[path] = &cloned
 	r.mu.Unlock()
 	return nil
 }
@@ -140,9 +140,9 @@ func (r *FileIndexRepository) Rebuild(entries []*models.FileInfo) error {
 			continue
 		}
 		path := normalizeIndexPath(entry.Path)
-		copy := *entry
-		copy.Path = path
-		next[path] = &copy
+		cloned := *entry
+		cloned.Path = path
+		next[path] = &cloned
 	}
 
 	r.mu.Lock()

@@ -3,6 +3,7 @@ package xhttp
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,26 +17,26 @@ import (
 )
 
 type RouteHandlers struct {
-	Files      http.Handler
-	Download   http.Handler
-	Upload     http.Handler
-	Directory  http.Handler
-	FileInfo   http.Handler
-	Search     http.Handler
-	Health     http.Handler
+	Files     http.Handler
+	Download  http.Handler
+	Upload    http.Handler
+	Directory http.Handler
+	FileInfo  http.Handler
+	Search    http.Handler
+	Health    http.Handler
 }
 
 type Server struct {
-	port            string
-	tlsGenerator    ports.TLSCertGenerator
-	logger          ports.Logger
-	handlers        RouteHandlers
-	authProvider    ports.AuthProvider
-	enableAuth      bool
-	maxUploadBytes  int64
-	httpServer      *http.Server
-	staticDir       string
-	useTLS          bool
+	port           string
+	tlsGenerator   ports.TLSCertGenerator
+	logger         ports.Logger
+	handlers       RouteHandlers
+	authProvider   ports.AuthProvider
+	enableAuth     bool
+	maxUploadBytes int64
+	httpServer     *http.Server
+	staticDir      string
+	useTLS         bool
 }
 
 func NewServer(
@@ -60,9 +61,11 @@ func NewServer(
 			TLSConfig: &tls.Config{
 				MinVersion: tls.VersionTLS13,
 			},
-			ReadTimeout:    DefaultReadTimeout,
-			WriteTimeout:   DefaultWriteTimeout,
-			MaxHeaderBytes: DefaultMaxHeaderBytes,
+			ReadTimeout:       DefaultReadTimeout,
+			ReadHeaderTimeout: DefaultReadTimeout,
+			WriteTimeout:      DefaultWriteTimeout,
+			IdleTimeout:       DefaultIdleTimeout,
+			MaxHeaderBytes:    DefaultMaxHeaderBytes,
 		},
 	}
 }
@@ -118,8 +121,8 @@ func (s *Server) Start() error {
 		} else {
 			err = s.httpServer.ListenAndServe()
 		}
-		if err != nil && err != http.ErrServerClosed {
-			s.logger.Fatal("Server failed", "error", err)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.logger.Error("Server failed", "error", err)
 		}
 	}()
 
@@ -215,4 +218,11 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
 	return n, err
+}
+
+// Flush passes through streaming flushes so large downloads stream properly.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
