@@ -1,6 +1,10 @@
 package auth
 
-import "github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+import (
+	"crypto/subtle"
+
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+)
 
 // StaticAuthProvider implements simple static credential authentication.
 type StaticAuthProvider struct {
@@ -16,9 +20,12 @@ func NewStaticAuthProvider(username, password string) *StaticAuthProvider {
 	}
 }
 
-// Authenticate validates username and password.
+// Authenticate validates username and password in constant time
+// to prevent timing attacks on credential comparison.
 func (p *StaticAuthProvider) Authenticate(username, password string) bool {
-	return username == p.username && password == p.password
+	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(p.username)) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(password), []byte(p.password)) == 1
+	return userOK && passOK
 }
 
 var _ ports.AuthProvider = (*StaticAuthProvider)(nil)

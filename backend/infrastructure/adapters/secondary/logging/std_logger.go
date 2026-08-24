@@ -1,7 +1,10 @@
 package logging
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -32,37 +35,30 @@ func (l *StdLogger) Error(msg string, keysAndValues ...any) {
 	l.log("ERROR", msg, keysAndValues...)
 }
 
-// Fatal logs a fatal message and exits.
+// Fatal logs a fatal message and exits with a non-zero status.
+// The message is treated as plain text, never as a format string.
 func (l *StdLogger) Fatal(msg string, keysAndValues ...any) {
-	log.Fatalf("FATAL: "+msg, keysAndValues...)
+	l.log("FATAL", msg, keysAndValues...)
+	os.Exit(1)
 }
 
 // log writes a formatted log entry.
+// The message is treated as plain text; only the key/value pairs are formatted.
 func (l *StdLogger) log(level, msg string, keysAndValues ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if len(keysAndValues) == 0 {
-		log.Printf("%s: %s", level, msg)
-		return
-	}
-
-	// Simple key=value formatting
-	var args []interface{}
-	format := "%s: " + msg
-	args = append(args, level)
+	var sb strings.Builder
+	sb.WriteString(level)
+	sb.WriteString(": ")
+	sb.WriteString(msg)
 
 	for i := 0; i < len(keysAndValues); i += 2 {
 		if i+1 < len(keysAndValues) {
-			format += " %v=%v"
-			args = append(args, keysAndValues[i], keysAndValues[i+1])
+			fmt.Fprintf(&sb, " %v=%v", keysAndValues[i], keysAndValues[i+1])
 		} else {
-			format += " %v=<missing>"
-			args = append(args, keysAndValues[i])
+			fmt.Fprintf(&sb, " %v=<missing>", keysAndValues[i])
 		}
 	}
 
-	log.Printf(format, args...)
+	log.Print(sb.String())
 }
 
 var _ ports.Logger = (*StdLogger)(nil)
