@@ -12,9 +12,9 @@ Simple File Share is a modern web application that provides secure file manageme
 ## 🎯 Key Features
 
 ### 🛡️ Security First
-- **End-to-End HTTPS**: All communications are encrypted using TLS 1.3
+- **End-to-End HTTPS**: All communications can be encrypted using TLS 1.3
 - **Path Traversal Protection**: Built-in safeguards against directory traversal attacks
-- **JWT Authentication**: Secure token-based authentication (implemented)
+- **Basic Auth**: Username/password authentication protecting every API endpoint
 - **Input Validation**: Comprehensive validation for all user inputs
 - **CORS Protection**: Configurable CORS policies for web security
 
@@ -41,16 +41,17 @@ Simple File Share is a modern web application that provides secure file manageme
 ### Backend
 - **Language**: Go 1.25+
 - **Web Framework**: Standard Library `net/http`
-- **Authentication**: JWT tokens (built-in implementation)
+- **Authentication**: HTTP Basic Auth (constant-time credential comparison)
 - **TLS**: Built-in support with automatic certificate management
+- **Serving**: Serves the API and the built React frontend from a single container
 - **Testing**: Native Go testing with table-driven tests
 - **Documentation**: OpenAPI 3.0 (Swagger) specification
 
 ### Frontend
-- **Framework**: React 18+ with TypeScript
+- **Framework**: React 19+ with TypeScript
 - **Build Tool**: Vite
-- **Styling**: Modern CSS with responsive design
-- **State Management**: React Context API
+- **Styling**: Tailwind CSS with responsive design
+- **State Management**: Zustand (global stores) with selectors
 
 ## 📚 API Documentation
 
@@ -229,8 +230,8 @@ graph LR
 
 ### Prerequisites
 - Go 1.25 or later
-- Node.js 18+ (for frontend development)
-- Valid TLS certificates (or use self-signed for development)
+- Node.js 20+ (for frontend development)
+- Docker (optional, for containerized deployment)
 
 ### Backend Setup
 
@@ -247,12 +248,13 @@ graph LR
 
 3. **Configure environment variables**
    ```bash
-   export FILE_SHARE_ROOT=/path/to/storage
-   export FILE_SHARE_USERNAME=admin
-   export FILE_SHARE_PASSWORD=securepassword
-   export JWT_SECRET=your-secret-key
-   export TLS_CERT_FILE=path/to/cert.pem
-   export TLS_KEY_FILE=path/to/key.pem
+   export ROOT_DIR=/path/to/storage      # or FILE_SHARE_ROOT
+   export USERNAME=admin                 # or FILE_SHARE_USERNAME
+   export PASSWORD=securepassword        # or FILE_SHARE_PASSWORD
+   export PORT=22010
+   export APP_ENV=development            # disables auth + TLS for local work
+   export ENABLE_AUTH=false
+   export ENABLE_TLS=false
    ```
 
 4. **Run the server**
@@ -284,9 +286,72 @@ graph LR
    docker-compose up --build
    ```
 
+## ☁️ Deployment
+
+The app ships as a **single self-contained Docker image** that serves both the React frontend and the Go API, so any Docker-capable host (Render, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container.
+
+### Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `APP_ENV` | `development` | `production` enables auth; `ENABLE_AUTH`/`ENABLE_TLS` also gate features |
+| `PORT` | `22010` (dev `3000`) | HTTP listen port |
+| `ROOT_DIR` / `FILE_SHARE_ROOT` | `./data` (or `/data`) | Storage directory for uploaded files |
+| `STATIC_DIR` | `frontend/dist` | Directory containing the built React app (index.html + assets) |
+| `USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Basic-auth username |
+| `PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Basic-auth password (**change in production**) |
+| `MAX_UPLOAD_BYTES` | `104857600` | Maximum upload size (100 MiB) |
+| `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
+| `ENABLE_TLS` | `false` | Serve HTTPS with generated certs |
+
+> **Note:** `USERNAME` is read from the process environment. On machines where the OS sets a `USERNAME` variable (e.g. some shells), you must set it explicitly to avoid the server picking up your login name.
+
+### Option A — Render (free, recommended for a quick demo)
+
+A ready-to-use [Render Blueprint](render.yaml) is included:
+
+1. Push this repository to GitHub.
+2. At https://dashboard.render.com select **New → Blueprint**, choose the repository and branch (`main`), then **Apply**.
+3. Render reads `render.yaml` (web service, `/health` health check, auto-deploy) and builds the image.
+4. Open the service's **Environment** tab and copy the auto-generated `PASSWORD`.
+5. Sign in at the live URL with username `admin` and that generated `PASSWORD`.
+
+**Free-tier caveats:** Render's free web service sleeps after ~15 min of inactivity and its filesystem is ephemeral — uploaded files are lost on restart/redeploy. This is fine for a demo; for persistent storage enable a paid plan or mount a Render **Disk** at `/data`.
+
+### Option B — Any Docker host
+
+```bash
+# Build the image (frontend + backend)
+docker build -t simple-file-share .
+
+# Run it
+docker run -d --name file-share \
+  -p 22010:22010 \
+  -v "$PWD/data:/data" \
+  -e APP_ENV=production \
+  -e USERNAME=admin \
+  -e PASSWORD='your-strong-password' \
+  simple-file-share
+
+# Or, ready to go
+docker-compose up --build
+```
+
+Then open `http://localhost:22010`.
+
+### Option C — Local production-mode smoke test
+
+```bash
+cd frontend && npm run build
+cd ..
+APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
+USERNAME=admin PASSWORD=admin ENABLE_TLS=false ./backend-file-server & # or: go run ./backend/cmd/server
+# -> http://localhost:8090 serves the UI; API at /api/*; health at /health
+```
+
 ## 🛡️ Security Considerations
 
-- Always use strong passwords and JWT secrets
+- Always use strong passwords
 - Keep TLS certificates up to date
 - Regularly audit file permissions
 - Monitor access logs for suspicious activity
@@ -386,7 +451,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 4. **Production Ready**: Includes health checks, proper error handling, and structured logging
 5. **Flexible Storage**: Easy to implement different storage backends (local filesystem, S3, etc.)
 6. **Self-Contained**: No database required - perfect for simple deployments
-7. **JWT Authentication**: Secure token-based authentication with built-in implementation
+7. **Basic Auth**: Secure username/password authentication protecting every endpoint
 8. **Input Validation**: Comprehensive validation for security and reliability
 
 ## 📞 Support
@@ -395,8 +460,9 @@ For support, please open an issue in the GitHub repository.
 
 ## 🔮 Roadmap
 
-- [ ] **Authentication**: Implement JWT token generation endpoint
+- [x] **Authentication**: Basic username/password auth for all API endpoints
 - [ ] **Rate Limiting**: Add rate limiting for API endpoints
+- [ ] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
 - [ ] **File Versioning**: Support for file version history
 - [ ] **Search**: Full-text search capabilities
 - [ ] **Cloud Storage**: S3 and other cloud storage backends
