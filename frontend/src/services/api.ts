@@ -1,5 +1,39 @@
 import { API_BASE_URL } from '@/config';
 
+// ---------------------------------------------------------------------------
+// Basic-auth credential store (kept in sessionStorage for the tab lifetime)
+// ---------------------------------------------------------------------------
+const CRED_KEY = 'fs_credentials';
+
+function loadCredentials(): string | null {
+  try {
+    return sessionStorage.getItem(CRED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setCredentials(username: string, password: string): void {
+  try {
+    sessionStorage.setItem(CRED_KEY, btoa(`${username}:${password}`));
+  } catch {
+    /* storage unavailable - credentials stay in memory only */
+  }
+}
+
+export function clearCredentials(): void {
+  try {
+    sessionStorage.removeItem(CRED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function authHeader(): Record<string, string> {
+  const cred = loadCredentials();
+  return cred ? { Authorization: `Basic ${cred}` } : {};
+}
+
 export interface FileItem {
   name: string;
   path: string;
@@ -12,15 +46,20 @@ export interface FileItem {
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
-  message?: string;
+  /** True when the server rejected the request due to missing/bad credentials. */
+  unauthorized?: boolean;
 }
 
 async function handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
   if (!response.ok) {
-    const error = await response.text();
-    return { error: error || 'An error occurred' };
+    if (response.status === 401) {
+      clearCredentials();
+      return { error: 'Invalid username or password', unauthorized: true };
+    }
+    const error = await response.text().catch(() => '');
+    return { error: error || `Request failed (${response.status})` };
   }
-  
+
   try {
     const data = await response.json();
     return { data };
@@ -40,6 +79,7 @@ export const api = {
 
     const response = await fetch(`${API_BASE_URL}/api/upload`, {
       method: 'POST',
+      headers: { ...authHeader() },
       body: formData,
     });
 
@@ -59,7 +99,7 @@ export const api = {
       url.searchParams.append('path', path);
     }
 
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: authHeader() });
     return handleResponse(response);
   },
 
@@ -68,7 +108,7 @@ export const api = {
     url.searchParams.append('q', query);
     url.searchParams.append('limit', String(limit));
 
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: authHeader() });
     return handleResponse(response);
   },
 
@@ -76,7 +116,7 @@ export const api = {
   createDirectory: async (path: string): Promise<ApiResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/directories`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ path }),
     });
 
@@ -87,18 +127,20 @@ export const api = {
   deletePath: async (path: string): Promise<ApiResponse> => {
     const response = await fetch(`${API_BASE_URL}/api/files`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ path }),
     });
 
     return handleResponse(response);
   },
 
-  // Download file
+  // Download file (or ZIP archive when the path points at a directory)
   downloadFile: async (path: string): Promise<Blob> => {
-    const response = await fetch(`${API_BASE_URL}/api/files/download?path=${encodeURIComponent(path)}`);
+    const response = await fetch(`${API_BASE_URL}/api/files/download?path=${encodeURIComponent(path)}`, {
+      headers: authHeader(),
+    });
     if (!response.ok) {
-      throw new Error('Failed to download file');
+      throw new Error(response.status === 401 ? 'Not authorized' : 'Failed to download');
     }
     return response.blob();
   },
@@ -112,7 +154,9 @@ export const api = {
     modified: string;
     mimeType: string;
   }>> => {
-    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
+    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`, {
+      headers: authHeader(),
+    });
     return handleResponse(response);
   },
 };

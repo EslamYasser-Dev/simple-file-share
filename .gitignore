@@ -29,3 +29,6 @@ build/
 coverage.html
 backend/coverage.out
 *.tar.gz
+
+# Runtime file storage
+data/

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { Activity, Loader2, Search, SearchX } from 'lucide-react';
 import { api } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
@@ -14,6 +14,7 @@ interface FileItem {
 
 export function Chat() {
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const [results, setResults] = useState<FileItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -44,10 +45,10 @@ export function Chat() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      handleSearch(query);
+      handleSearch(deferredQuery);
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, handleSearch]);
+  }, [deferredQuery, handleSearch]);
 
   return (
     <div className="space-y-6">

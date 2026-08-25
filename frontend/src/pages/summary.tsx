@@ -1,15 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, File, FileArchive, FileImage, FileText, FileVideo, Folder, HardDrive, Loader2, Music, RefreshCw } from 'lucide-react';
-import { api } from '../services/api';
+import { useFileStore } from '../store/fileStore';
 import { formatBytes, getExtension } from '../lib/utils';
-
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDir: boolean;
-  modified: string;
-}
 
 interface TypeStat {
   label: string;
@@ -20,31 +12,32 @@ interface TypeStat {
 }
 
 export function Summary() {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const rootFiles = useFileStore((s) => s.rootFiles);
+  const refreshRoot = useFileStore((s) => s.refreshRoot);
+  const [isLoading, setIsLoading] = useState(rootFiles.length === 0);
   const [error, setError] = useState<string | null>(null);
-
-  const loadAll = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const { data, error: err } = await api.listFiles('');
-      if (err) throw new Error(err);
-      setFiles(data || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load storage summary');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    let mounted = true;
+    setIsLoading(true);
+    setError(null);
+    (async () => {
+      const res = await refreshRoot();
+      if (!mounted) return;
+      if (!res.ok) setError('Failed to load storage summary');
+      setIsLoading(false);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [refreshRoot, attempt]);
+
+  const loadAll = () => setAttempt((v) => v + 1);
 
   const stats = useMemo(() => {
-    const dirs = files.filter((f) => f.isDir);
-    const fileList = files.filter((f) => !f.isDir);
+    const dirs = rootFiles.filter((f) => f.isDir);
+    const fileList = rootFiles.filter((f) => !f.isDir);
     const totalSize = fileList.reduce((acc, f) => acc + f.size, 0);
 
     const typeMap = new Map<string, TypeStat>();
@@ -78,7 +71,7 @@ export function Summary() {
       totalSize,
       types: Array.from(typeMap.values()).sort((a, b) => b.size - a.size),
     };
-  }, [files]);
+  }, [rootFiles]);
 
   const maxTypeSize = Math.max(...stats.types.map((t) => t.size), 1);
 

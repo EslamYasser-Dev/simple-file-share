@@ -1,129 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ArrowUp,
-  ChevronRight,
-  Download,
-  FolderPlus,
-  Loader2,
-  RefreshCw,
-  Search,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-react';
+import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
+import { ArrowUp, ChevronRight, Download, FolderPlus, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { api } from '../services/api';
+import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
-import { Modal } from '../components/Modal';
-import { useToast } from '../components/Toast';
+import { useToast } from '../hooks/useToast';
+import { useFileStore } from '../store/fileStore';
 import { formatBytes, formatDate, getExtension, fileTypeColor } from '../lib/utils';
-
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDir: boolean;
-  modified: string;
-}
 
 type SortKey = 'name' | 'size' | 'modified';
 type SortDir = 'asc' | 'desc';
 
 export function Home() {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [currentPath, setCurrentPath] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const files = useFileStore((s) => s.files);
+  const currentPath = useFileStore((s) => s.currentPath);
+  const isLoading = useFileStore((s) => s.isLoading);
+  const isUploading = useFileStore((s) => s.isUploading);
+  const uploadProgress = useFileStore((s) => s.uploadProgress);
+  const fetchFiles = useFileStore((s) => s.fetchFiles);
+  const navigateTo = useFileStore((s) => s.navigateTo);
+  const uploadFiles = useFileStore((s) => s.uploadFiles);
+  const deleteItem = useFileStore((s) => s.deleteItem);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const [, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { success, error } = useToast();
 
-  const loadFiles = useCallback(async (path: string) => {
-    setIsLoading(true);
-    try {
-      const { data, error: err } = await api.listFiles(path);
-      if (err) throw new Error(err);
-      setFiles(data || []);
-      setCurrentPath(path);
-    } catch (e) {
-      error(e instanceof Error ? e.message : 'Failed to load files');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [error]);
+  const [optimisticFiles, removeOptimistic] = useOptimistic(
+    files,
+    (current, removedPath: string) => current.filter((f) => f.path !== removedPath),
+  );
 
   useEffect(() => {
-    loadFiles('');
-  }, [loadFiles]);
+    fetchFiles('');
+  }, [fetchFiles]);
 
-  const navigateTo = (path: string) => {
-    loadFiles(path);
+  const handleNavigate = (path: string) => {
+    startTransition(() => navigateTo(path));
   };
 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    setIsUploading(true);
-    setUploadProgress(0);
-    try {
-      for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
-        const result = await api.uploadFile(file, currentPath);
-        if (result.error) throw new Error(result.error);
-        setUploadProgress(Math.round(((i + 1) / fileList.length) * 100));
-      }
-      success(`Uploaded ${fileList.length} file(s) successfully`);
-      loadFiles(currentPath);
-    } catch (e) {
-      error(e instanceof Error ? e.message : 'Upload failed');
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+    const { uploaded, error: err } = await uploadFiles(fileList);
+    if (err) {
+      error(err);
+      return;
     }
-  };
-
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
-    setIsCreatingFolder(true);
-    try {
-      const path = currentPath ? `${currentPath}/${newFolderName.trim()}` : newFolderName.trim();
-      const result = await api.createDirectory(path);
-      if (result.error) throw new Error(result.error);
-      success('Folder created');
-      setNewFolderName('');
-      setShowNewFolder(false);
-      loadFiles(currentPath);
-    } catch (e) {
-      error(e instanceof Error ? e.message : 'Failed to create folder');
-    } finally {
-      setIsCreatingFolder(false);
-    }
+    success(`Uploaded ${uploaded} file(s) successfully`);
   };
 
   const handleDelete = async (item: FileItem) => {
     if (!window.confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
-    try {
-      const result = await api.deletePath(item.path);
-      if (result.error) throw new Error(result.error);
-      success(`Deleted "${item.name}"`);
-      loadFiles(currentPath);
-    } catch (e) {
-      error(e instanceof Error ? e.message : 'Delete failed');
+    startTransition(() => {
+      removeOptimistic(item.path);
+    });
+    const result = await deleteItem(item.path);
+    if (result.error) {
+      error(result.error);
+      await fetchFiles(currentPath);
+      return;
     }
+    success(`Deleted "${item.name}"`);
   };
 
   const handleDownload = async (item: FileItem) => {
     try {
-      const blob = await api.downloadFile(item.path);
+      const blob = await api.downloadFile(item.isDir ? `${item.path}.zip` : item.path);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = item.name;
+      a.download = item.isDir ? `${item.name}.zip` : item.name;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -146,7 +95,7 @@ export function Home() {
     }
   };
 
-  const filtered = files
+  const filtered = optimisticFiles
     .filter((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
@@ -162,7 +111,6 @@ export function Home() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Files</h1>
@@ -173,7 +121,7 @@ export function Home() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => loadFiles(currentPath)}
+            onClick={() => fetchFiles(currentPath)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -188,12 +136,10 @@ export function Home() {
           </button>
         </div>
       </div>
-
-      {/* Breadcrumbs + Search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-1 text-sm text-slate-400">
           <button
-            onClick={() => navigateTo('')}
+            onClick={() => handleNavigate('')}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-slate-800 hover:text-slate-200"
           >
             <ArrowUp className="h-3.5 w-3.5" />
@@ -205,7 +151,7 @@ export function Home() {
               <span key={path} className="flex items-center gap-1">
                 <ChevronRight className="h-3.5 w-3.5 text-slate-600" />
                 <button
-                  onClick={() => navigateTo(path)}
+                  onClick={() => handleNavigate(path)}
                   className="rounded px-1.5 py-0.5 transition-colors hover:bg-slate-800 hover:text-slate-200"
                 >
                   {crumb}
@@ -235,7 +181,6 @@ export function Home() {
         </div>
       </div>
 
-      {/* Upload progress */}
       {isUploading && (
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
           <div className="mb-2 flex items-center justify-between text-sm">
@@ -254,7 +199,6 @@ export function Home() {
         </div>
       )}
 
-      {/* File list */}
       <div
         className={`overflow-hidden rounded-xl border transition-colors ${
           dragOver ? 'border-blue-500/50 bg-blue-500/5' : 'border-slate-800 bg-slate-900/50'
@@ -266,33 +210,21 @@ export function Home() {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        {/* Table header */}
         <div className="hidden grid-cols-12 gap-4 border-b border-slate-800 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 md:grid">
-          <button
-            className="col-span-6 flex items-center gap-1 text-left hover:text-slate-300"
-            onClick={() => toggleSort('name')}
-          >
+          <button className="col-span-6 flex items-center gap-1 text-left hover:text-slate-300" onClick={() => toggleSort('name')}>
             Name
             {sortKey === 'name' && <span className="text-blue-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
           </button>
-          <button
-            className="col-span-2 flex items-center gap-1 text-left hover:text-slate-300"
-            onClick={() => toggleSort('size')}
-          >
+          <button className="col-span-2 flex items-center gap-1 text-left hover:text-slate-300" onClick={() => toggleSort('size')}>
             Size
             {sortKey === 'size' && <span className="text-blue-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
           </button>
-          <button
-            className="col-span-2 flex items-center gap-1 text-left hover:text-slate-300"
-            onClick={() => toggleSort('modified')}
-          >
+          <button className="col-span-2 flex items-center gap-1 text-left hover:text-slate-300" onClick={() => toggleSort('modified')}>
             Modified
             {sortKey === 'modified' && <span className="text-blue-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
           </button>
           <span className="col-span-2 text-right">Actions</span>
         </div>
-
-        {/* Rows */}
         {isLoading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
             <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
@@ -316,13 +248,13 @@ export function Home() {
               <li
                 key={item.path}
                 className="group grid grid-cols-12 items-center gap-4 px-4 py-3 transition-colors hover:bg-slate-800/30"
-                onDoubleClick={() => item.isDir && navigateTo(item.path)}
+                onDoubleClick={() => item.isDir && handleNavigate(item.path)}
               >
                 <div className="col-span-12 flex items-center gap-3 md:col-span-6">
                   <FileIcon name={item.name} isDir={item.isDir} />
                   <button
+                    onClick={() => item.isDir && handleNavigate(item.path)}
                     className="truncate text-sm font-medium text-slate-200 hover:text-blue-400"
-                    onClick={() => item.isDir && navigateTo(item.path)}
                     title={item.name}
                   >
                     {item.name}
@@ -338,15 +270,13 @@ export function Home() {
                 </div>
                 <div className="col-span-2 hidden text-sm text-slate-500 md:block">{formatDate(item.modified)}</div>
                 <div className="col-span-2 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                  {!item.isDir && (
-                    <button
-                      onClick={() => handleDownload(item)}
-                      className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-700 hover:text-blue-400"
-                      title="Download"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleDownload(item)}
+                    className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-700 hover:text-blue-400"
+                    title={item.isDir ? 'Download as ZIP' : 'Download'}
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
                   <button
                     onClick={() => handleDelete(item)}
                     className="rounded p-1.5 text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400"
@@ -361,7 +291,6 @@ export function Home() {
         )}
       </div>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -372,43 +301,6 @@ export function Home() {
           e.target.value = '';
         }}
       />
-
-      {/* New folder modal */}
-      <Modal open={showNewFolder} onClose={() => setShowNewFolder(false)} title="New Folder">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleCreateFolder();
-          }}
-          className="space-y-4"
-        >
-          <input
-            autoFocus
-            type="text"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="Folder name"
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none transition-colors focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowNewFolder(false)}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!newFolderName.trim() || isCreatingFolder}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isCreatingFolder && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create
-            </button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
