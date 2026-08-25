@@ -1,0 +1,41 @@
+# Render Blueprint — deploys the full app (Go API + built React UI) as a single
+# web service using the repo's Dockerfile.
+#
+# To deploy:
+#   1. Push this repo to GitHub.
+#   2. In Render: New -> Blueprint -> select the repo -> Apply.
+#   3. Copy the generated PASSWORD / JWT_SECRET values from the service's
+#      Environment tab (or set your own) and note the live URL.
+#
+# NOTE: the Render free tier's filesystem is ephemeral and the service sleeps
+# after ~15 min of inactivity (uploads are lost on restart). This is fine for a
+# demo; for real persistence add a Render Disk mounted at /data.
+
+services:
+  - type: web
+    name: simple-file-share
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    rootDir: .
+    autoDeploy: true
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: USERNAME
+        value: admin
+      - key: PASSWORD
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ROOT_DIR
+        value: /data
+      - key: STATIC_DIR
+        value: /app/dist
+      - key: ENABLE_AUTH
+        value: "true"
+      - key: ENABLE_TLS
+        value: "false"
+      - key: MAX_UPLOAD_BYTES
+        value: "104857600"

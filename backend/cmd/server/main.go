@@ -74,9 +74,15 @@ func main() {
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
 
-	if os.Getenv("APP_ENV") != productionEnv {
-		server.SetStaticFileServer("frontend/dist")
+	// Serve the built React frontend whenever present (both dev and production).
+	// Point STATIC_DIR at the directory containing index.html + assets. Serving the
+	// frontend from the Go binary lets Render host the whole app as a single
+	// web service (one URL) for the API and the UI.
+	staticDir := os.Getenv("STATIC_DIR")
+	if staticDir == "" {
+		staticDir = "frontend/dist"
 	}
+	server.SetStaticFileServer(staticDir)
 
 	if err := server.Start(); err != nil {
 		logger.Fatal("Server failed", "error", err)
