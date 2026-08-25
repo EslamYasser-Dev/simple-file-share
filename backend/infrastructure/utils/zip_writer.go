@@ -11,7 +11,7 @@ import (
 // Designed to be used in a goroutine with io.Pipe().
 func ZipDirectory(root string, w io.Writer) error {
 	zipWriter := zip.NewWriter(w)
-	defer zipWriter.Close()
+	defer func() { _ = zipWriter.Close() }()
 
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -43,9 +43,14 @@ func ZipDirectory(root string, w io.Writer) error {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
-			_, err = io.Copy(writer, file)
-			return err
+			// Close eagerly per-file; a defer here would leak descriptors
+			// until the entire walk completes.
+			_, copyErr := io.Copy(writer, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		}
 
 		return nil

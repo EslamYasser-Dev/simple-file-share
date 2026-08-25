@@ -1,11 +1,13 @@
 package ports
 
-// ConfigProvider defines the interface for configuration providers
+// ConfigProvider defines the interface for configuration providers.
 type ConfigProvider interface {
 	GetPort() string
 	GetUsername() string
 	GetPassword() string
 	GetRootDir() string
-	// EnableTLS returns whether TLS should be enabled
+	GetJWTSecret() string
+	GetMaxUploadBytes() int64
 	EnableTLS() bool
+	EnableAuth() bool
 }

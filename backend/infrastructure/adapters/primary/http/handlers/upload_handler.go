@@ -1,44 +1,41 @@
 package handlers
 
 import (
-	"fmt"
-	"html"
+	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"path/filepath"
 	"strings"
 
-	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
-// UploadHandler handles multipart file uploads.
 type UploadHandler struct {
 	uploadService *services.UploadService
 }
 
-// NewUploadHandler creates a new UploadHandler.
 func NewUploadHandler(uploadService *services.UploadService) *UploadHandler {
-	return &UploadHandler{
-		uploadService: uploadService,
-	}
+	return &UploadHandler{uploadService: uploadService}
 }
 
-// ServeHTTP processes uploaded files and returns HTML response.
 func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Optional destination path can be provided via query param or multipart field 'path'
 	destPrefix := strings.TrimPrefix(r.URL.Query().Get("path"), "/")
 
 	reader, err := r.MultipartReader()
 	if err != nil {
-		http.Error(w, "Invalid multipart request", http.StatusBadRequest)
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			respondJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "upload exceeds size limit"})
+			return
+		}
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart request"})
 		return
 	}
 
@@ -49,40 +46,53 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
-			continue // Skip malformed parts
+			// A non-EOF error means the stream is broken; retrying would
+			// loop forever, so fail the request instead.
+			closeParts(parts)
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed multipart request"})
+			return
 		}
+
 		if part.FileName() == "" {
-			// Possibly a form field such as 'path'
 			if part.FormName() == "path" {
-				if b, readErr := ioutil.ReadAll(part); readErr == nil {
+				if b, readErr := io.ReadAll(part); readErr == nil {
 					destPrefix = strings.TrimPrefix(string(b), "/")
 				}
 			}
-			// Non-file part; continue
+			part.Close()
 			continue
 		}
 
 		filename := part.FileName()
 		if destPrefix != "" {
-			// Ensure we join safely and normalize to forward slashes for repository
 			filename = filepath.ToSlash(filepath.Join(destPrefix, filename))
 		}
-
-		// Wrap the part to override the filename reported to the service layer
-		// multipart.Part implements models.ReadCloser via embedded interfaces
 		parts = append(parts, &uploadPartWithName{name: filename, rc: part})
 	}
 
 	uploads, err := h.uploadService.Execute(parts)
 	if err != nil {
-		http.Error(w, "Upload processing failed", http.StatusInternalServerError)
+		respondWithError(w, err)
 		return
 	}
 
-	renderUploadResponse(w, uploads)
+	if len(uploads) == 0 {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "no files uploaded"})
+		return
+	}
+
+	if len(uploads) == 1 {
+		respondJSON(w, http.StatusOK, dto.UploadResult{Path: uploads[0].Filename, Size: uploads[0].Size})
+		return
+	}
+
+	results := make([]dto.UploadResult, len(uploads))
+	for i, u := range uploads {
+		results[i] = dto.UploadResult{Path: u.Filename, Size: u.Size}
+	}
+	respondJSON(w, http.StatusOK, results)
 }
 
-// uploadPartWithName allows overriding the filename while passing through content
 type uploadPartWithName struct {
 	name string
 	rc   models.ReadCloser
@@ -91,40 +101,9 @@ type uploadPartWithName struct {
 func (u *uploadPartWithName) Filename() string           { return u.name }
 func (u *uploadPartWithName) Content() models.ReadCloser { return u.rc }
 
-// renderUploadResponse generates HTML feedback for uploaded files.
-func renderUploadResponse(w http.ResponseWriter, uploads []models.FileUpload) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	if len(uploads) == 0 {
-		fmt.Fprintf(w, `
-			<!DOCTYPE html>
-			<html>
-			<head><title>Upload Result</title></head>
-			<body>
-				<h3>⚠️ No files were uploaded!</h3>
-				<p>Please go back and select a file or folder.</p>
-				<a href="/">📁 Back to files</a>
-			</body>
-			</html>`)
-		return
+// closeParts releases any streams not handed off to the upload service.
+func closeParts(parts []models.UploadPart) {
+	for _, p := range parts {
+		_ = p.Content().Close()
 	}
-
-	fmt.Fprintf(w, `
-		<!DOCTYPE html>
-		<html>
-		<head><title>Upload Result</title></head>
-		<body>
-			<h3>✅ Successfully uploaded %d file(s)!</h3>
-			<ul>`, len(uploads))
-
-	for _, upload := range uploads {
-		safeName := html.EscapeString(upload.Filename)
-		fmt.Fprintf(w, `<li>%s (%d bytes)</li>`, safeName, upload.Size)
-	}
-
-	fmt.Fprintf(w, `
-			</ul>
-			<a href="/">📁 Back to files</a>
-		</body>
-		</html>`)
 }

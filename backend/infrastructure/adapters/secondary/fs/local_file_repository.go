@@ -1,85 +1,148 @@
 package fs
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/utils"
 )
 
-// LocalFileRepository implements domain.FileRepository using local filesystem.
+// LocalFileRepository implements ports.FileRepository using the local filesystem.
 type LocalFileRepository struct {
 	rootDir string
 }
 
-// NewLocalFileRepository creates a new file repository adapter.
 func NewLocalFileRepository(rootDir string) *LocalFileRepository {
-	return &LocalFileRepository{rootDir: rootDir}
+	abs, err := filepath.Abs(rootDir)
+	if err != nil {
+		abs = rootDir
+	}
+	return &LocalFileRepository{rootDir: abs}
 }
 
-// resolve converts a relative path to absolute within rootDir.
-func (r *LocalFileRepository) resolve(path string) string {
+func (r *LocalFileRepository) resolve(path string) (string, error) {
 	cleaned := filepath.FromSlash(strings.TrimPrefix(path, "/"))
-	return filepath.Join(r.rootDir, cleaned)
+
+	// Defense in depth: reject any exact ".." segment before joining.
+	for _, segment := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		if segment == ".." {
+			return "", errors.NewValidationError("path", path, "path traversal detected")
+		}
+	}
+
+	fullPath := filepath.Join(r.rootDir, cleaned)
+
+	// Ensure the joined path stays within the root directory.
+	if fullPath != r.rootDir &&
+		!strings.HasPrefix(fullPath, r.rootDir+string(os.PathSeparator)) {
+		return "", errors.NewValidationError("path", path, "path escapes root directory")
+	}
+
+	return fullPath, nil
 }
 
-// ListDirectory returns metadata for all entries in a directory.
 func (r *LocalFileRepository) ListDirectory(path string) ([]*models.FileInfo, error) {
-	fullPath := r.resolve(path)
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
 		return nil, err
 	}
 
+	parentPath := "/" + filepath.ToSlash(strings.TrimPrefix(path, "/"))
+	if parentPath == "/." {
+		parentPath = "/"
+	}
+
 	var files []*models.FileInfo
 	for _, entry := range entries {
-		name := entry.Name()
-		url := "/" + filepath.ToSlash(filepath.Join(strings.TrimPrefix(path, "/"), name))
-		zipURL := url + ".zip"
-		if path == "/" || path == "" {
-			url = "/" + name
-			zipURL = "/" + name + ".zip"
+		if shouldSkipIndexPath(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
 		}
 
-		fileInfo, _ := entry.Info()
-		size := formatFileSize(fileInfo.Size(), entry.IsDir())
+		childPath := parentPath
+		if childPath == "/" {
+			childPath = "/" + entry.Name()
+		} else {
+			childPath = parentPath + "/" + entry.Name()
+		}
 
 		files = append(files, &models.FileInfo{
-			Name:   name,
-			URL:    url,
-			ZipURL: zipURL,
-			Size:   size,
-			IsDir:  entry.IsDir(),
+			Name:     entry.Name(),
+			Path:     strings.TrimPrefix(childPath, "/"),
+			Size:     info.Size(),
+			IsDir:    entry.IsDir(),
+			Modified: info.ModTime(),
 		})
 	}
 	return files, nil
 }
 
-// IsDirectory checks if the path is a directory.
+func (r *LocalFileRepository) GetFileInfo(path string) (*models.FileInfo, error) {
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, err
+	}
+
+	displayPath := "/" + filepath.ToSlash(strings.TrimPrefix(path, "/"))
+	if displayPath == "/." {
+		displayPath = "/"
+	}
+
+	return &models.FileInfo{
+		Name:     info.Name(),
+		Path:     strings.TrimPrefix(displayPath, "/"),
+		Size:     info.Size(),
+		IsDir:    info.IsDir(),
+		Modified: info.ModTime(),
+	}, nil
+}
+
 func (r *LocalFileRepository) IsDirectory(path string) (bool, error) {
-	info, err := os.Stat(r.resolve(path))
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Stat(fullPath)
 	if err != nil {
 		return false, err
 	}
 	return info.IsDir(), nil
 }
 
-// FileExists checks if a file or directory exists at the given path.
 func (r *LocalFileRepository) FileExists(path string) (bool, error) {
-	_, err := os.Stat(r.resolve(path))
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(fullPath)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
 	return err == nil, err
 }
 
-// ServeFile opens a file for reading and returns its stream and name.
 func (r *LocalFileRepository) ServeFile(path string) (models.ReadCloser, string, error) {
-	fullPath := r.resolve(path)
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return nil, "", err
+	}
 	file, err := os.Open(fullPath)
 	if err != nil {
 		return nil, "", err
@@ -87,16 +150,38 @@ func (r *LocalFileRepository) ServeFile(path string) (models.ReadCloser, string,
 	return file, filepath.Base(fullPath), nil
 }
 
-// CreateDirectory creates all directories in the given path.
 func (r *LocalFileRepository) CreateDirectory(path string) error {
-	return os.MkdirAll(r.resolve(path), 0755)
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(fullPath, 0755)
 }
 
-// WriteFile writes content from reader to the specified file path.
-func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (int64, error) {
-	defer reader.Close()
+func (r *LocalFileRepository) DeletePath(path string) error {
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return err
+	}
 
-	fullPath := r.resolve(path)
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.RemoveAll(fullPath)
+	}
+	return os.Remove(fullPath)
+}
+
+func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (int64, error) {
+	defer func() { _ = reader.Close() }()
+
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return 0, err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return 0, err
 	}
@@ -105,38 +190,34 @@ func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (
 	if err != nil {
 		return 0, err
 	}
-	defer dst.Close()
 
-	return io.Copy(dst, reader)
+	written, copyErr := io.Copy(dst, reader)
+	closeErr := dst.Close()
+	if copyErr != nil {
+		// Remove the partial file so failed uploads don't leave corrupt data.
+		_ = os.Remove(fullPath)
+		return written, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(fullPath)
+		return written, closeErr
+	}
+	return written, nil
 }
 
-// ZipDirectory returns a streaming ZIP archive of the directory.
 func (r *LocalFileRepository) ZipDirectory(root string) (models.ReadCloser, error) {
-	pr, pw := io.Pipe()
+	fullPath, err := r.resolve(root)
+	if err != nil {
+		return nil, err
+	}
 
+	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		if err := utils.ZipDirectory(r.resolve(root), pw); err != nil {
+		if err := utils.ZipDirectory(fullPath, pw); err != nil {
 			pw.CloseWithError(err)
 		}
 	}()
 
 	return pr, nil
-}
-
-// formatFileSize returns human-readable size string.
-func formatFileSize(size int64, isDir bool) string {
-	if isDir {
-		return "[Directory]"
-	}
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }

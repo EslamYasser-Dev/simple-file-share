@@ -5,6 +5,7 @@ import (
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
 
 type DownloadZipService struct {
@@ -16,18 +17,28 @@ func NewDownloadZipService(fileRepo ports.FileRepository) *DownloadZipService {
 }
 
 func (s *DownloadZipService) Execute(path string) (models.ReadCloser, string, error) {
-	isDir, err := s.fileRepo.IsDirectory(path)
+	fp, err := valueobjects.NewFilePath(path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	rel := fp.Relative()
+	isDir, err := s.fileRepo.IsDirectory(rel)
 	if err != nil {
 		return nil, "", err
 	}
 	if !isDir {
-		return nil, "", nil // Not a dir → not zip
+		return nil, "", nil
 	}
 
-	zipStream, err := s.fileRepo.ZipDirectory(path)
+	zipStream, err := s.fileRepo.ZipDirectory(rel)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return zipStream, filepath.Base(path) + ".zip", nil
+	name := filepath.Base(rel)
+	if name == "." || name == "" {
+		name = "root"
+	}
+	return zipStream, name + ".zip", nil
 }

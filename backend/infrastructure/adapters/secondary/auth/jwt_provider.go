@@ -13,24 +13,25 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
-type JWTProviderImpl struct {
+// HMACJWTProvider implements ports.JWTProvider using HMAC-SHA256 (HS256).
+type HMACJWTProvider struct {
 	secretKey []byte
 	expiry    time.Duration
 }
 
-func NewJWTProvider(secretKey string, expiry time.Duration) *JWTProviderImpl {
-	return &JWTProviderImpl{
+func NewJWTProvider(secretKey string, expiry time.Duration) *HMACJWTProvider {
+	return &HMACJWTProvider{
 		secretKey: []byte(secretKey),
 		expiry:    expiry,
 	}
 }
 
-func (p *JWTProviderImpl) GenerateToken(username string) (string, error) {
+func (p *HMACJWTProvider) GenerateToken(username string) (string, error) {
 	now := time.Now()
 	claims := map[string]any{
 		"username": username,
-		"exp":      now.Add(p.expiry).UnixMilli(),
-		"iat":      now.UnixMilli(),
+		"exp":      now.Add(p.expiry).Unix(),
+		"iat":      now.Unix(),
 	}
 
 	// Create header
@@ -64,9 +65,8 @@ func (p *JWTProviderImpl) GenerateToken(username string) (string, error) {
 	return token, nil
 }
 
-// ValidateToken validates a JWT token and returns the claims
-func (p *JWTProviderImpl) ValidateToken(tokenString string) (*ports.JWTClaims, error) {
-	// Split token into parts
+// ValidateToken validates a JWT token and returns the claims.
+func (p *HMACJWTProvider) ValidateToken(tokenString string) (*ports.JWTClaims, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("invalid token format")
@@ -74,13 +74,25 @@ func (p *JWTProviderImpl) ValidateToken(tokenString string) (*ports.JWTClaims, e
 
 	headerEncoded, claimsEncoded, signatureEncoded := parts[0], parts[1], parts[2]
 
-	// Verify signature
-	message := headerEncoded + "." + claimsEncoded
-	h := hmac.New(sha256.New, p.secretKey)
-	h.Write([]byte(message))
-	expectedSignature := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	// Verify the header declares HS256 before trusting the signature.
+	headerJSON, err := base64.RawURLEncoding.DecodeString(headerEncoded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode header: %w", err)
+	}
+	var header struct {
+		Alg string `json:"alg"`
+	}
+	if err := json.Unmarshal(headerJSON, &header); err != nil || header.Alg != "HS256" {
+		return nil, errors.New("unsupported token algorithm")
+	}
 
-	if signatureEncoded != expectedSignature {
+	// Verify signature in constant time to prevent timing attacks.
+	message := headerEncoded + "." + claimsEncoded
+	mac := hmac.New(sha256.New, p.secretKey)
+	mac.Write([]byte(message))
+	expectedSignature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signatureEncoded), []byte(expectedSignature)) {
 		return nil, errors.New("invalid signature")
 	}
 
@@ -122,9 +134,9 @@ func (p *JWTProviderImpl) ValidateToken(tokenString string) (*ports.JWTClaims, e
 
 	return &ports.JWTClaims{
 		Username:  username,
-		ExpiresAt: expiresAt,
-		IssuedAt:  issuedAt,
+		ExpiresAt: expiresAt.Unix(),
+		IssuedAt:  issuedAt.Unix(),
 	}, nil
 }
 
-var _ ports.JWTProvider = (*JWTProviderImpl)(nil)
+var _ ports.JWTProvider = (*HMACJWTProvider)(nil)

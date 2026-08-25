@@ -3,21 +3,15 @@
 # Variables
 BIN_NAME = bin/file-share
 REL_MAIN_PATH = cmd/server/main.go
-DATE = $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 BIN_LINUX = $(BIN_NAME)-$(VERSION)-linux
-BIN_WINDOWS = $(BIN_NAME)-$(VERSION).exe
 
 .DEFAULT_GOAL := help
 
 # Build Linux binary
 build:
 	@echo "🔨 Building server..."
-	@cd backend && \
-	if [ ! -d "vendor" ] || [ "$$(find . -name "*.go" -newer "go.sum" | wc -l)" -gt 0 ]; then \
-		go mod tidy; \
-	fi
-	@cd backend && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.BuildDate=$(DATE)" \
+	@cd backend && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" \
 		-o ../$(BIN_LINUX) $(REL_MAIN_PATH)
 	@echo "✅ Build complete: $(BIN_LINUX)"
 
