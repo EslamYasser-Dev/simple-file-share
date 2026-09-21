@@ -39,7 +39,9 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var parts []models.UploadPart
+	var uploads []models.FileUpload
+	var execErrors []error
+
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -48,7 +50,6 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// A non-EOF error means the stream is broken; retrying would
 			// loop forever, so fail the request instead.
-			closeParts(parts)
 			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed multipart request"})
 			return
 		}
@@ -67,12 +68,24 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if destPrefix != "" {
 			filename = filepath.ToSlash(filepath.Join(destPrefix, filename))
 		}
-		parts = append(parts, &uploadPartWithName{name: filename, rc: part})
+
+		// mime/multipart shares one buffered reader across parts, so the next
+		// part can only be parsed once this one has been fully consumed. The
+		// upload therefore happens inline: it drains the part and releases the
+		// descriptor before NextPart() advances the stream. Reading a part
+		// lazily and then calling NextPart() again silently discards its data.
+		written, execErr := h.uploadService.Execute(currentUser(r), []models.UploadPart{
+			&uploadPartWithName{name: filename, rc: part},
+		})
+		if execErr != nil {
+			execErrors = append(execErrors, execErr)
+			continue
+		}
+		uploads = append(uploads, written...)
 	}
 
-	uploads, err := h.uploadService.Execute(parts)
-	if err != nil {
-		respondWithError(w, err)
+	if len(uploads) == 0 && len(execErrors) > 0 {
+		respondWithError(w, execErrors[0])
 		return
 	}
 
@@ -95,15 +108,8 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type uploadPartWithName struct {
 	name string
-	rc   models.ReadCloser
+	rc   io.ReadCloser
 }
 
-func (u *uploadPartWithName) Filename() string           { return u.name }
-func (u *uploadPartWithName) Content() models.ReadCloser { return u.rc }
-
-// closeParts releases any streams not handed off to the upload service.
-func closeParts(parts []models.UploadPart) {
-	for _, p := range parts {
-		_ = p.Content().Close()
-	}
-}
+func (u *uploadPartWithName) Filename() string       { return u.name }
+func (u *uploadPartWithName) Content() io.ReadCloser { return u.rc }

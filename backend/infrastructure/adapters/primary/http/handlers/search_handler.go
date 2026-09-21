@@ -30,7 +30,7 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.searchService.Execute(query, limit)
+	results, err := h.searchService.Execute(currentUser(r), query, limit)
 	if err != nil {
 		respondWithError(w, err)
 		return

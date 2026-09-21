@@ -17,13 +17,19 @@ import (
 )
 
 type RouteHandlers struct {
-	Files     http.Handler
-	Download  http.Handler
-	Upload    http.Handler
-	Directory http.Handler
-	FileInfo  http.Handler
-	Search    http.Handler
-	Health    http.Handler
+	Files      http.Handler
+	Download   http.Handler
+	View       http.Handler
+	Upload     http.Handler
+	Update     http.Handler
+	Directory  http.Handler
+	FileInfo   http.Handler
+	Search     http.Handler
+	Register   http.Handler
+	Me         http.Handler
+	AuthInfo   http.Handler
+	AdminUsers http.Handler
+	Health     http.Handler
 }
 
 type Server struct {
@@ -147,14 +153,25 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	apiChain := s.apiMiddleware()
 	mux.Handle("/api/files", apiChain(s.handlers.Files))
 	mux.Handle("/api/files/download", apiChain(s.handlers.Download))
+	mux.Handle("/api/files/view", apiChain(s.handlers.View))
 	mux.Handle("/api/files/info", apiChain(s.handlers.FileInfo))
 	mux.Handle("/api/files/search", apiChain(s.handlers.Search))
 	mux.Handle("/api/upload", chainMiddleware(s.handlers.Upload, append(s.apiMiddlewareFuncs(), MaxBytesMiddleware(s.maxUploadBytes))...))
+	mux.Handle("/api/files/content", apiChain(s.handlers.Update))
 	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
+	mux.Handle("/api/auth/me", apiChain(s.handlers.Me))
+	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUsers))
 
-	mux.Handle("/health", chainMiddleware(s.handlers.Health, corsMiddleware, func(next http.Handler) http.Handler {
-		return loggingMiddleware(next, s.logger)
-	}))
+	// Public auth endpoints (no credentials required).
+	publicMiddleware := func(h http.Handler) http.Handler {
+		return chainMiddleware(h, corsMiddleware, func(next http.Handler) http.Handler {
+			return loggingMiddleware(next, s.logger)
+		})
+	}
+	mux.Handle("/api/auth/register", publicMiddleware(s.handlers.Register))
+	mux.Handle("/api/auth/info", publicMiddleware(s.handlers.AuthInfo))
+
+	mux.Handle("/health", publicMiddleware(s.handlers.Health))
 
 	mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")

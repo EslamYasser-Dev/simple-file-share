@@ -28,7 +28,7 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := pathFromQuery(r)
 	if strings.HasSuffix(path, ".zip") {
 		path = strings.TrimSuffix(path, ".zip")
-		stream, filename, err := h.zipService.Execute(path)
+		stream, filename, err := h.zipService.Execute(currentUser(r), path)
 		if err != nil {
 			respondWithError(w, err)
 			return
@@ -41,7 +41,7 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stream, filename, err := h.fileService.Execute(path)
+	stream, filename, err := h.fileService.Execute(currentUser(r), path)
 	if err != nil {
 		respondWithError(w, err)
 		return

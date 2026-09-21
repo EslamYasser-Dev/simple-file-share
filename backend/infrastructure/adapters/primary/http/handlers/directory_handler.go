@@ -31,7 +31,7 @@ func (h *DirectoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.createService.Execute(req.Path); err != nil {
+	if err := h.createService.Execute(currentUser(r), req.Path); err != nil {
 		respondWithError(w, err)
 		return
 	}

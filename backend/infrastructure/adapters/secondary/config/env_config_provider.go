@@ -11,6 +11,7 @@ type EnvConfigProvider struct {
 	maxUploadBytes int64
 	enableTLS      bool
 	enableAuth     bool
+	enableSignup   bool
 }
 
 func NewEnvConfigProvider() (*EnvConfigProvider, error) {
@@ -28,6 +29,7 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		maxUploadBytes: resolveMaxUploadBytes(),
 		enableTLS:      resolveBoolEnv("ENABLE_TLS", true),
 		enableAuth:     resolveBoolEnv("ENABLE_AUTH", true),
+		enableSignup:   resolveEnableSignup(),
 	}, nil
 }
 
@@ -39,5 +41,6 @@ func (p *EnvConfigProvider) GetJWTSecret() string     { return p.jwtSecret }
 func (p *EnvConfigProvider) GetMaxUploadBytes() int64 { return p.maxUploadBytes }
 func (p *EnvConfigProvider) EnableTLS() bool          { return p.enableTLS }
 func (p *EnvConfigProvider) EnableAuth() bool         { return p.enableAuth }
+func (p *EnvConfigProvider) EnableSignup() bool       { return p.enableSignup }
 
 var _ ports.ConfigProvider = (*EnvConfigProvider)(nil)

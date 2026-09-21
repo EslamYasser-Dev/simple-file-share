@@ -14,7 +14,8 @@ Simple File Share is a modern web application that provides secure file manageme
 ### 🛡️ Security First
 - **End-to-End HTTPS**: All communications can be encrypted using TLS 1.3
 - **Path Traversal Protection**: Built-in safeguards against directory traversal attacks
-- **Basic Auth**: Username/password authentication protecting every API endpoint
+- **Multi-User Accounts**: Every request is authenticated and scoped to the signed-in user
+- **Hashed Passwords**: PBKDF2-SHA256 (600k iterations, per-user salt) — no plaintext credentials
 - **Input Validation**: Comprehensive validation for all user inputs
 - **CORS Protection**: Configurable CORS policies for web security
 
@@ -30,6 +31,23 @@ Simple File Share is a modern web application that provides secure file manageme
 - **On-Demand Zipping**: Download folders as ZIP archives with a single click
 - **File Metadata**: View file sizes, modification dates, and types
 
+### 🖼️ In-App Viewer & Editor
+- **File Preview**: Render PDFs, images, audio, and video inline without leaving the page
+- **Markdown Editor**: Preview and edit `.md` files with a built-in editor
+- **Safe Streaming**: Non-renderable or unsafe types (e.g. HTML/SVG) are force-downloaded
+
+### 🌐 Internationalization
+- **Bilingual UI**: English and Arabic with full RTL support
+- **Persisted Preference**: Language choice is stored in the browser
+- **Auto-detection**: Defaults to Arabic when the browser language is Arabic
+
+### 👥 Multi-User & Permissions
+- **Self-Service Signup**: Optional public registration (`ENABLE_SIGNUP`); the first account becomes an admin
+- **Private Storage**: Each user gets an isolated home directory, invisible to other users
+- **Global Shared Folder**: A common `shared/` space that every signed-in user can read (writes are admin-only)
+- **Admin Console**: Admins see every account with per-user file count and storage usage
+- **Bootstrap Admin**: An admin is seeded from `ADMIN_USERNAME`/`ADMIN_PASSWORD` on first run, so existing deployments keep working
+
 ### 🏗️ Clean Architecture
 - **Modular Design**: Separated domain, application, and infrastructure layers
 - **Dependency Injection**: Easy to test and maintain
@@ -41,7 +59,7 @@ Simple File Share is a modern web application that provides secure file manageme
 ### Backend
 - **Language**: Go 1.25+
 - **Web Framework**: Standard Library `net/http`
-- **Authentication**: HTTP Basic Auth (constant-time credential comparison)
+- **Authentication**: HTTP Basic Auth against a JSON-backed user store with PBKDF2-SHA256 password hashing
 - **TLS**: Built-in support with automatic certificate management
 - **Serving**: Serves the API and the built React frontend from a single container
 - **Testing**: Native Go testing with table-driven tests
@@ -52,6 +70,7 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS with responsive design
 - **State Management**: Zustand (global stores) with selectors
+- **Internationalization**: English/Arabic with RTL layout and persisted preference
 
 ## 📚 API Documentation
 
@@ -62,11 +81,11 @@ Simple File Share is a modern web application that provides secure file manageme
 GET /api/files
 ```
 - **Parameters**:
-  - `path` (query, optional): Directory path to list or file to download
+  - `path` (query, optional): Directory path to list
 - **Responses**:
-  - `200`: Directory listing (HTML) or file download
+  - `200`: JSON directory listing
   - `401`: Authentication required
-  - `403`: Forbidden (path traversal detected)
+  - `403`: Forbidden (path traversal or another user's private space)
   - `404`: Path not found
 
 #### 2. Upload Files/Folders
@@ -84,7 +103,37 @@ Content-Type: multipart/form-data
   - `403`: Forbidden
   - `413`: Payload too large
 
-#### 3. Health Check
+#### 3. View File Inline
+```
+GET /api/files/view?path=<file>
+```
+- Streams a file with `Content-Disposition: inline` so the browser renders it.
+- Only safe types (PDF, images, audio/video, plain text/markdown) are inline;
+  anything else is forced to download to prevent script injection.
+- **Responses**:
+  - `200`: File contents
+  - `400`: Invalid path
+  - `401`: Authentication required
+  - `404`: Path not found
+  - `409`: Path is a directory
+
+#### 4. Update File Content
+```
+PUT /api/files/content
+Content-Type: application/json
+```
+- **Body**:
+  ```json
+  { "path": "notes.md", "content": "# New content" }
+  ```
+- Overwrites a plain-text file (used by the markdown editor).
+- **Responses**:
+  - `200`: `{ "message": "file updated", "size": 21 }`
+  - `400`: Invalid request or unknown content type
+  - `401`: Authentication required
+  - `404`: Path not found
+
+#### 5. Health Check
 ```
 GET /health
 ```
@@ -96,7 +145,46 @@ GET /health
   }
   ```
 
-#### 4. API Documentation
+#### 6. Register Account
+```
+POST /api/auth/register
+Content-Type: application/json
+```
+- **Body**: `{ "username": "alice", "password": "s3cret" }`
+- Public endpoint; only available when `ENABLE_SIGNUP` is true. The first account created becomes an admin.
+- **Responses**:
+  - `201`: `{ "username": "alice", "isAdmin": false, "createdAt": "..." }`
+  - `400`: Invalid username or password
+  - `403`: Registration disabled
+  - `409`: Username already exists
+
+#### 7. Auth Capabilities
+```
+GET /api/auth/info
+```
+- Public endpoint reporting runtime auth features.
+- **Responses**:
+  - `200`: `{ "signupEnabled": true }`
+
+#### 8. Current User
+```
+GET /api/auth/me
+```
+- Returns the authenticated account (or the system-admin view when auth is disabled).
+- **Responses**:
+  - `200`: `{ "username": "alice", "isAdmin": false, "createdAt": "..." }`
+  - `401`: Authentication required
+
+#### 9. List Users (admin only)
+```
+GET /api/admin/users
+```
+- **Responses**:
+  - `200`: Array of `{ "username", "isAdmin", "createdAt", "files", "size" }`
+  - `401`: Authentication required
+  - `403`: Admin access required
+
+#### 10. API Documentation
 ```
 GET /swagger
 ```
@@ -249,10 +337,11 @@ graph LR
 3. **Configure environment variables**
    ```bash
    export ROOT_DIR=/path/to/storage      # or FILE_SHARE_ROOT
-   export USERNAME=admin                 # or FILE_SHARE_USERNAME
-   export PASSWORD=securepassword        # or FILE_SHARE_PASSWORD
+   export ADMIN_USERNAME=admin           # bootstrap admin (first run only)
+   export ADMIN_PASSWORD=securepassword
    export PORT=22010
-   export APP_ENV=development            # disables auth + TLS for local work
+   export ENABLE_SIGNUP=true             # allow self-service registration
+   export APP_ENV=development            # defaults to auth + TLS disabled
    export ENABLE_AUTH=false
    export ENABLE_TLS=false
    ```
@@ -296,15 +385,16 @@ The app ships as a **single self-contained Docker image** that serves both the R
 | --- | --- | --- |
 | `APP_ENV` | `development` | `production` enables auth; `ENABLE_AUTH`/`ENABLE_TLS` also gate features |
 | `PORT` | `22010` (dev `3000`) | HTTP listen port |
-| `ROOT_DIR` / `FILE_SHARE_ROOT` | `./data` (or `/data`) | Storage directory for uploaded files |
+| `ROOT_DIR` / `FILE_SHARE_ROOT` | `./data` (or `/data`) | Storage directory for uploaded files (contains per-user homes under `users/`) |
 | `STATIC_DIR` | `frontend/dist` | Directory containing the built React app (index.html + assets) |
-| `USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Basic-auth username |
-| `PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Basic-auth password (**change in production**) |
-| `MAX_UPLOAD_BYTES` | `104857600` | Maximum upload size (100 MiB) |
+| `ADMIN_USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Bootstrap admin username, seeded only when no accounts exist |
+| `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password (**change in production**) |
+| `ENABLE_SIGNUP` | `true` | Allow public self-service registration |
+| `MAX_UPLOAD_BYTES` | `unlimited` | Maximum upload size. `unlimited`/`0` (default) caps nothing; set e.g. `2GB`, `500MB`, or a raw byte count to enforce a limit |
 | `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
 | `ENABLE_TLS` | `false` | Serve HTTPS with generated certs |
 
-> **Note:** `USERNAME` is read from the process environment. On machines where the OS sets a `USERNAME` variable (e.g. some shells), you must set it explicitly to avoid the server picking up your login name.
+> **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
 ### Option A — Render (free, recommended for a quick demo)
 
@@ -313,8 +403,8 @@ A ready-to-use [Render Blueprint](render.yaml) is included:
 1. Push this repository to GitHub.
 2. At https://dashboard.render.com select **New → Blueprint**, choose the repository and branch (`main`), then **Apply**.
 3. Render reads `render.yaml` (web service, `/health` health check, auto-deploy) and builds the image.
-4. Open the service's **Environment** tab and copy the auto-generated `PASSWORD`.
-5. Sign in at the live URL with username `admin` and that generated `PASSWORD`.
+4. Open the service's **Environment** tab and copy the auto-generated `ADMIN_PASSWORD`.
+5. Sign in at the live URL with username `admin` and that generated `ADMIN_PASSWORD`.
 
 **Free-tier caveats:** Render's free web service sleeps after ~15 min of inactivity and its filesystem is ephemeral — uploaded files are lost on restart/redeploy. This is fine for a demo; for persistent storage enable a paid plan or mount a Render **Disk** at `/data`.
 
@@ -329,8 +419,8 @@ docker run -d --name file-share \
   -p 22010:22010 \
   -v "$PWD/data:/data" \
   -e APP_ENV=production \
-  -e USERNAME=admin \
-  -e PASSWORD='your-strong-password' \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD='your-strong-password' \
   simple-file-share
 
 # Or, ready to go
@@ -339,13 +429,27 @@ docker-compose up --build
 
 Then open `http://localhost:22010`.
 
-### Option C — Local production-mode smoke test
+### Option C — Pull the published image
+
+Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) triggers the
+release workflow, which builds the image and publishes it to
+**GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`).
+
+```bash
+docker pull ghcr.io/eslamyasser-dev/simple-file-share:latest
+docker run -d --name file-share -p 22010:22010 \
+  -v "$PWD/data:/data" \
+  -e APP_ENV=production -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD='your-strong-password' \
+  ghcr.io/eslamyasser-dev/simple-file-share:latest
+```
+
+### Option D — Local production-mode smoke test
 
 ```bash
 cd frontend && npm run build
 cd ..
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
-USERNAME=admin PASSWORD=admin ENABLE_TLS=false ./backend-file-server & # or: go run ./backend/cmd/server
+ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./backend-file-server & # or: go run ./backend/cmd/server
 # -> http://localhost:8090 serves the UI; API at /api/*; health at /health
 ```
 
@@ -353,7 +457,9 @@ USERNAME=admin PASSWORD=admin ENABLE_TLS=false ./backend-file-server & # or: go 
 
 - Always use strong passwords
 - Keep TLS certificates up to date
-- Regularly audit file permissions
+- Disable public signup (`ENABLE_SIGNUP=false`) on private deployments
+- Review the user list periodically (`GET /api/admin/users`) and remove stale accounts
+- Regularly audit file permissions on the `ROOT_DIR` volume
 - Monitor access logs for suspicious activity
 - Consider adding rate limiting in production
 - Validate all user inputs
@@ -414,7 +520,7 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite
+5. Run the test suite (`make test` or the Make targets below)
 6. Submit a pull request
 
 ## 🔁 CI/CD
@@ -422,21 +528,31 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
-  - Builds and tests the backend (Go) on push/PR to `master`/`main`
-  - Builds the frontend (Vite/React) to ensure it compiles
-  - Publishes the frontend `dist/` as a build artifact
+  - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
+  - **Frontend** (Vite/React): `tsc` type check, ESLint, tests, production build, with `dist/` uploaded as an artifact
+  - **Docker**: builds the production image (no push) to verify the Dockerfile
+  - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
-  - Triggers on tags that match `v*.*.*` (e.g., `v1.0.0`)
-  - Builds a static Linux-amd64 backend binary at `build/file-share-server`
-  - Builds the frontend and packages it as `build/frontend-dist.tar.gz`
-  - Creates a GitHub Release and uploads both artifacts automatically
+  - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
+  - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
+  - Creates a GitHub Release with auto-generated release notes
+
+### Make targets
+
+```bash
+make test      # run the full backend + frontend test suite
+make lint      # gofmt + go vet + frontend eslint
+make build     # build the backend binary into bin/
+make run       # build and start the server (see makefile for env defaults)
+```
 
 ### How to cut a release
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
+# The release workflow publishes ghcr.io/eslamyasser-dev/simple-file-share:v1.0.0
 ```
 
 ## 📄 License
@@ -451,7 +567,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 4. **Production Ready**: Includes health checks, proper error handling, and structured logging
 5. **Flexible Storage**: Easy to implement different storage backends (local filesystem, S3, etc.)
 6. **Self-Contained**: No database required - perfect for simple deployments
-7. **Basic Auth**: Secure username/password authentication protecting every endpoint
+7. **Multi-User**: Per-user private storage, a global shared folder, and an admin console
 8. **Input Validation**: Comprehensive validation for security and reliability
 
 ## 📞 Support
@@ -460,7 +576,8 @@ For support, please open an issue in the GitHub repository.
 
 ## 🔮 Roadmap
 
-- [x] **Authentication**: Basic username/password auth for all API endpoints
+- [x] **Authentication**: Username/password accounts with PBKDF2 hashing for all API endpoints
+- [x] **Multi-User**: Private per-user storage, a read-only shared folder, and an admin console
 - [ ] **Rate Limiting**: Add rate limiting for API endpoints
 - [ ] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
 - [ ] **File Versioning**: Support for file version history

@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func (r *IndexedFileRepository) FileExists(path string) (bool, error) {
 	return r.fs.FileExists(path)
 }
 
-func (r *IndexedFileRepository) ServeFile(path string) (models.ReadCloser, string, error) {
+func (r *IndexedFileRepository) ServeFile(path string) (io.ReadCloser, string, error) {
 	return r.fs.ServeFile(path)
 }
 
@@ -66,7 +67,7 @@ func (r *IndexedFileRepository) DeletePath(path string) error {
 	return nil
 }
 
-func (r *IndexedFileRepository) WriteFile(path string, reader models.ReadCloser) (int64, error) {
+func (r *IndexedFileRepository) WriteFile(path string, reader io.ReadCloser) (int64, error) {
 	written, err := r.fs.WriteFile(path, reader)
 	if err != nil {
 		return written, err
@@ -75,7 +76,7 @@ func (r *IndexedFileRepository) WriteFile(path string, reader models.ReadCloser)
 	return written, nil
 }
 
-func (r *IndexedFileRepository) ZipDirectory(root string) (models.ReadCloser, error) {
+func (r *IndexedFileRepository) ZipDirectory(root string) (io.ReadCloser, error) {
 	return r.fs.ZipDirectory(root)
 }
 

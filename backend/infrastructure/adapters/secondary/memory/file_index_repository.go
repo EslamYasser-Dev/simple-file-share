@@ -23,6 +23,27 @@ func NewFileIndexRepository() *FileIndexRepository {
 	}
 }
 
+// PrefixStats sums the non-directory entries under a normalized path prefix.
+func (r *FileIndexRepository) PrefixStats(prefix string) (int, int64, error) {
+	prefix = normalizeIndexPath(prefix)
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	files := 0
+	var size int64
+	for path, info := range r.entries {
+		if prefix == "" || path == prefix || strings.HasPrefix(path, prefix+"/") {
+			if info.IsDir {
+				continue
+			}
+			files++
+			size += info.Size
+		}
+	}
+	return files, size, nil
+}
+
 func (r *FileIndexRepository) Search(query string, limit int) ([]*models.FileInfo, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {

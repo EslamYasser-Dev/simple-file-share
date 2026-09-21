@@ -10,4 +10,6 @@ type ConfigProvider interface {
 	GetMaxUploadBytes() int64
 	EnableTLS() bool
 	EnableAuth() bool
+	// EnableSignup toggles public self-registration via POST /api/auth/register.
+	EnableSignup() bool
 }

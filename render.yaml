@@ -23,9 +23,9 @@ services:
     envVars:
       - key: APP_ENV
         value: production
-      - key: USERNAME
+      - key: ADMIN_USERNAME
         value: admin
-      - key: PASSWORD
+      - key: ADMIN_PASSWORD
         generateValue: true
       - key: JWT_SECRET
         generateValue: true
@@ -33,9 +33,13 @@ services:
         value: /data
       - key: STATIC_DIR
         value: /app/dist
+      - key: ENABLE_SIGNUP
+        value: "true"
       - key: ENABLE_AUTH
         value: "true"
       - key: ENABLE_TLS
         value: "false"
+      # "unlimited" = no upload size cap (bounded only by disk space).
+      # Set a numeric value (e.g. "2147483648") to cap uploads in bytes.
       - key: MAX_UPLOAD_BYTES
-        value: "104857600"
+        value: "unlimited"

@@ -138,7 +138,7 @@ func (r *LocalFileRepository) FileExists(path string) (bool, error) {
 	return err == nil, err
 }
 
-func (r *LocalFileRepository) ServeFile(path string) (models.ReadCloser, string, error) {
+func (r *LocalFileRepository) ServeFile(path string) (io.ReadCloser, string, error) {
 	fullPath, err := r.resolve(path)
 	if err != nil {
 		return nil, "", err
@@ -174,7 +174,7 @@ func (r *LocalFileRepository) DeletePath(path string) error {
 	return os.Remove(fullPath)
 }
 
-func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (int64, error) {
+func (r *LocalFileRepository) WriteFile(path string, reader io.ReadCloser) (int64, error) {
 	defer func() { _ = reader.Close() }()
 
 	fullPath, err := r.resolve(path)
@@ -205,7 +205,7 @@ func (r *LocalFileRepository) WriteFile(path string, reader models.ReadCloser) (
 	return written, nil
 }
 
-func (r *LocalFileRepository) ZipDirectory(root string) (models.ReadCloser, error) {
+func (r *LocalFileRepository) ZipDirectory(root string) (io.ReadCloser, error) {
 	fullPath, err := r.resolve(root)
 	if err != nil {
 		return nil, err

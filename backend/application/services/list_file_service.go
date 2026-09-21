@@ -8,20 +8,25 @@ import (
 
 type ListFilesService struct {
 	fileRepo ports.FileRepository
+	scoper   ports.PathScoper
 }
 
-func NewListFilesService(fileRepo ports.FileRepository) *ListFilesService {
-	return &ListFilesService{fileRepo: fileRepo}
+func NewListFilesService(fileRepo ports.FileRepository, scoper ports.PathScoper) *ListFilesService {
+	return &ListFilesService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *ListFilesService) Execute(path string) (*models.PageData, error) {
+func (s *ListFilesService) Execute(user *models.User, path string) (*models.PageData, error) {
 	fp, err := valueobjects.NewFilePath(path)
 	if err != nil {
 		return nil, err
 	}
 
-	rel := fp.Relative()
-	isDir, err := s.fileRepo.IsDirectory(rel)
+	physical, err := s.scoper.ReadPath(user, fp.Relative())
+	if err != nil {
+		return nil, err
+	}
+
+	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
 		return nil, err
 	}
@@ -29,10 +34,14 @@ func (s *ListFilesService) Execute(path string) (*models.PageData, error) {
 		return nil, nil
 	}
 
-	files, err := s.fileRepo.ListDirectory(rel)
+	files, err := s.fileRepo.ListDirectory(physical)
 	if err != nil {
 		return nil, err
 	}
 
-	return &models.PageData{Root: fp.String(), Files: files}, nil
+	for _, f := range files {
+		f.Path = s.scoper.PhysicalToVirtual(user, f.Path)
+	}
+
+	return &models.PageData{Root: s.scoper.PhysicalToVirtual(user, physical), Files: files}, nil
 }

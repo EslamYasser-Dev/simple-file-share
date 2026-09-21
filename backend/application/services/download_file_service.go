@@ -1,7 +1,9 @@
 package services
 
 import (
-	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
+	"io"
+
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
@@ -9,28 +11,33 @@ import (
 
 type DownloadFileService struct {
 	fileRepo ports.FileRepository
+	scoper   ports.PathScoper
 }
 
-func NewDownloadFileService(fileRepo ports.FileRepository) *DownloadFileService {
-	return &DownloadFileService{fileRepo: fileRepo}
+func NewDownloadFileService(fileRepo ports.FileRepository, scoper ports.PathScoper) *DownloadFileService {
+	return &DownloadFileService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *DownloadFileService) Execute(path string) (models.ReadCloser, string, error) {
+func (s *DownloadFileService) Execute(user *models.User, path string) (io.ReadCloser, string, error) {
 	fp, err := valueobjects.NewFilePath(path)
 	if err != nil {
 		return nil, "", err
 	}
 
-	rel := fp.Relative()
-	exists, err := s.fileRepo.FileExists(rel)
+	physical, err := s.scoper.ReadPath(user, fp.Relative())
+	if err != nil {
+		return nil, "", err
+	}
+
+	exists, err := s.fileRepo.FileExists(physical)
 	if err != nil {
 		return nil, "", err
 	}
 	if !exists {
-		return nil, "", &errors.NotFoundError{Path: path}
+		return nil, "", &domainerrors.NotFoundError{Path: path}
 	}
 
-	isDir, err := s.fileRepo.IsDirectory(rel)
+	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
 		return nil, "", err
 	}
@@ -38,5 +45,5 @@ func (s *DownloadFileService) Execute(path string) (models.ReadCloser, string, e
 		return nil, "", nil
 	}
 
-	return s.fileRepo.ServeFile(rel)
+	return s.fileRepo.ServeFile(physical)
 }

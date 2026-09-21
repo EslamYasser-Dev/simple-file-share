@@ -1,6 +1,7 @@
 package services
 
 import (
+	"io"
 	"path/filepath"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
@@ -10,20 +11,25 @@ import (
 
 type DownloadZipService struct {
 	fileRepo ports.FileRepository
+	scoper   ports.PathScoper
 }
 
-func NewDownloadZipService(fileRepo ports.FileRepository) *DownloadZipService {
-	return &DownloadZipService{fileRepo: fileRepo}
+func NewDownloadZipService(fileRepo ports.FileRepository, scoper ports.PathScoper) *DownloadZipService {
+	return &DownloadZipService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *DownloadZipService) Execute(path string) (models.ReadCloser, string, error) {
+func (s *DownloadZipService) Execute(user *models.User, path string) (io.ReadCloser, string, error) {
 	fp, err := valueobjects.NewFilePath(path)
 	if err != nil {
 		return nil, "", err
 	}
 
-	rel := fp.Relative()
-	isDir, err := s.fileRepo.IsDirectory(rel)
+	physical, err := s.scoper.ReadPath(user, fp.Relative())
+	if err != nil {
+		return nil, "", err
+	}
+
+	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
 		return nil, "", err
 	}
@@ -31,12 +37,12 @@ func (s *DownloadZipService) Execute(path string) (models.ReadCloser, string, er
 		return nil, "", nil
 	}
 
-	zipStream, err := s.fileRepo.ZipDirectory(rel)
+	zipStream, err := s.fileRepo.ZipDirectory(physical)
 	if err != nil {
 		return nil, "", err
 	}
 
-	name := filepath.Base(rel)
+	name := filepath.Base(physical)
 	if name == "." || name == "" {
 		name = "root"
 	}

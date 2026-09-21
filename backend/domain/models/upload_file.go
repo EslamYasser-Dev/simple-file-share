@@ -1,5 +1,7 @@
 package models
 
+import "io"
+
 type FileUpload struct {
 	Filename string
 	Size     int64
@@ -7,10 +9,5 @@ type FileUpload struct {
 
 type UploadPart interface {
 	Filename() string
-	Content() ReadCloser
-}
-
-type ReadCloser interface {
-	Read(p []byte) (n int, err error)
-	Close() error
+	Content() io.ReadCloser
 }

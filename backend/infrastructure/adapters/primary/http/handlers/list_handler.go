@@ -21,7 +21,7 @@ func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pageData, err := h.listService.Execute(pathFromQuery(r))
+	pageData, err := h.listService.Execute(currentUser(r), pathFromQuery(r))
 	if err != nil {
 		respondWithError(w, err)
 		return

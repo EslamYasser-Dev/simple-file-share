@@ -7,11 +7,22 @@ export interface UploadResult {
   error?: string;
 }
 
+/** Which virtual root the file browser is currently operating in. */
+export type FileScope = 'files' | 'shared';
+
+/** Translate a browser-relative path into the virtual path the API expects. */
+function scopePath(scope: FileScope, path: string): string {
+  if (scope !== 'shared') return path;
+  return path ? `shared/${path}` : 'shared';
+}
+
 interface FileState {
   /** Listing of the currently viewed directory. */
   files: FileItem[];
-  /** Path of the currently viewed directory ('' = root). */
+  /** Path of the currently viewed directory, relative to the active scope. */
   currentPath: string;
+  /** Active virtual root (private home or the global shared folder). */
+  scope: FileScope;
   /** Root-level listing used by the summary page (independent of navigation). */
   rootFiles: FileItem[];
   isLoading: boolean;
@@ -21,6 +32,8 @@ interface FileState {
 
   fetchFiles: (path?: string) => Promise<void>;
   refreshRoot: () => Promise<{ ok: boolean }>;
+  /** Switch the active scope, resetting navigation to its root. */
+  setScope: (scope: FileScope) => void;
   /** Navigate to a specific directory. */
   navigateTo: (path: string) => void;
   /** Navigate to the parent directory of the current path. */
@@ -33,9 +46,10 @@ interface FileState {
   clearError: () => void;
 }
 
-/** Validate a single file against the configured limits. */
+/** Validate a single file against the configured limits. Size is only enforced
+ * when a positive limit is configured (0 = unlimited). */
 function validateFile(file: File): { valid: boolean; error?: string } {
-  if (file.size > MAX_FILE_SIZE) {
+  if (MAX_FILE_SIZE > 0 && file.size > MAX_FILE_SIZE) {
     return { valid: false, error: `File size exceeds the limit of ${MAX_FILE_SIZE / (1024 * 1024)}MB` };
   }
   if (!ALLOWED_FILE_TYPES.includes(file.type)) {
@@ -47,6 +61,7 @@ function validateFile(file: File): { valid: boolean; error?: string } {
 export const useFileStore = create<FileState>()((set, get) => ({
   files: [],
   currentPath: '',
+  scope: 'files',
   rootFiles: [],
   isLoading: false,
   error: null,
@@ -54,9 +69,10 @@ export const useFileStore = create<FileState>()((set, get) => ({
   isUploading: false,
 
   fetchFiles: async (path = '') => {
+    const { scope } = get();
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await api.listFiles(path);
+      const { data, error } = await api.listFiles(scopePath(scope, path));
       if (error) throw new Error(error);
       set({ files: data || [], currentPath: path });
     } catch (e) {
@@ -77,6 +93,11 @@ export const useFileStore = create<FileState>()((set, get) => ({
       set({ error: message });
       return { ok: false };
     }
+  },
+
+  setScope: (scope) => {
+    if (get().scope === scope) return;
+    set({ scope, currentPath: '', files: [], error: null });
   },
 
   navigateTo: (path) => {
@@ -101,11 +122,12 @@ export const useFileStore = create<FileState>()((set, get) => ({
     }
 
     const target = path ?? get().currentPath;
+    const { scope } = get();
     set({ isUploading: true, uploadProgress: 0, error: null });
 
     try {
       for (let i = 0; i < files.length; i++) {
-        const result = await api.uploadFile(files[i], target);
+        const result = await api.uploadFile(files[i], scopePath(scope, target));
         if (result.error) throw new Error(result.error);
         set({ uploadProgress: Math.round(((i + 1) / files.length) * 100) });
       }
@@ -126,7 +148,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
     const currentPath = get().currentPath;
     const fullPath = currentPath ? `${currentPath}/${trimmed}` : trimmed;
     set({ error: null });
-    const result = await api.createDirectory(fullPath);
+    const result = await api.createDirectory(scopePath(get().scope, fullPath));
     if (!result.error) {
       await get().fetchFiles(currentPath);
     }

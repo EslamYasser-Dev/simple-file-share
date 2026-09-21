@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
@@ -37,30 +38,52 @@ func main() {
 		logger.Info("File search index ready")
 	}
 
-	authProvider := auth.NewStaticAuthProvider(cfg.GetUsername(), cfg.GetPassword())
+	scoper := policy.NewPathScoper()
+	userRepo := fs.NewUserFileRepository(cfg.GetRootDir())
+	hasher := auth.NewPBKDF2Hasher()
+
+	seedService := services.NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
+	if !cfg.EnableAuth() {
+		logger.Info("Auth disabled — running as system admin view")
+	} else if seeded, err := seedService.Execute(cfg.GetUsername(), cfg.GetPassword()); err != nil {
+		logger.Warn("Admin seed failed", "error", err)
+	} else if seeded {
+		logger.Info("Seeded admin account", "username", cfg.GetUsername())
+	}
+
+	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 
-	listService := services.NewListFilesService(fileRepo)
-	downloadService := services.NewDownloadFileService(fileRepo)
-	zipService := services.NewDownloadZipService(fileRepo)
-	uploadService := services.NewUploadService(fileRepo)
-	createDirService := services.NewCreateDirectoryService(fileRepo)
-	deleteService := services.NewDeletePathService(fileRepo)
-	infoService := services.NewGetFileInfoService(fileRepo)
-	searchService := services.NewSearchFilesService(indexRepo)
+	listService := services.NewListFilesService(fileRepo, scoper)
+	downloadService := services.NewDownloadFileService(fileRepo, scoper)
+	zipService := services.NewDownloadZipService(fileRepo, scoper)
+	uploadService := services.NewUploadService(fileRepo, scoper)
+	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
+	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
+	deleteService := services.NewDeletePathService(fileRepo, scoper)
+	infoService := services.NewGetFileInfoService(fileRepo, scoper)
+	searchService := services.NewSearchFilesService(indexRepo, scoper)
+	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, cfg.EnableSignup())
+	usersService := services.NewListUsersService(userRepo, indexRepo, scoper)
 
 	listHandler := handlers.NewListHandler(listService)
 	deleteHandler := handlers.NewDeleteHandler(deleteService)
 	filesHandler := handlers.NewFilesHandler(listHandler, deleteHandler)
 
 	routeHandlers := xhttp.RouteHandlers{
-		Files:     filesHandler,
-		Download:  handlers.NewDownloadHandler(downloadService, zipService),
-		Upload:    handlers.NewUploadHandler(uploadService),
-		Directory: handlers.NewDirectoryHandler(createDirService),
-		FileInfo:  handlers.NewFileInfoHandler(infoService),
-		Search:    handlers.NewSearchHandler(searchService),
-		Health:    handlers.NewHealthHandler(),
+		Files:      filesHandler,
+		Download:   handlers.NewDownloadHandler(downloadService, zipService),
+		View:       handlers.NewViewHandler(downloadService),
+		Upload:     handlers.NewUploadHandler(uploadService),
+		Update:     handlers.NewUpdateFileHandler(updateService),
+		Directory:  handlers.NewDirectoryHandler(createDirService),
+		FileInfo:   handlers.NewFileInfoHandler(infoService),
+		Search:     handlers.NewSearchHandler(searchService),
+		Register:   handlers.NewRegisterHandler(registerService),
+		Me:         handlers.NewMeHandler(),
+		AuthInfo:   handlers.NewAuthInfoHandler(cfg.EnableSignup()),
+		AdminUsers: handlers.NewAdminUsersHandler(usersService),
+		Health:     handlers.NewHealthHandler(),
 	}
 
 	server := xhttp.NewServer(
@@ -95,6 +118,6 @@ func loadConfig(logger ports.Logger) (ports.ConfigProvider, error) {
 		logger.Info("Running in PRODUCTION mode")
 		return config.NewEnvConfigProvider()
 	}
-	logger.Info("Running in DEVELOPMENT mode (auth disabled, TLS disabled)")
+	logger.Info("Running in DEVELOPMENT mode (auth/TLS disabled unless explicitly enabled)")
 	return config.NewDevConfigProvider()
 }

@@ -12,9 +12,10 @@ services:
       APP_ENV: production
       PORT: "22010"
       ROOT_DIR: /data
-      USERNAME: admin
-      PASSWORD: changeme
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: changeme
       JWT_SECRET: change-me-in-production
+      ENABLE_SIGNUP: "true"
       ENABLE_TLS: "false"
       ENABLE_AUTH: "true"
       MAX_UPLOAD_BYTES: "104857600"
