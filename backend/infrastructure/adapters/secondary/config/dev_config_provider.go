@@ -9,6 +9,8 @@ type DevConfigProvider struct {
 	username       string
 	password       string
 	rootDir        string
+	grpcPort       string
+	enableGRPC     bool
 	maxUploadBytes int64
 }
 
@@ -23,6 +25,8 @@ func NewDevConfigProvider() (*DevConfigProvider, error) {
 		username:       resolveUsername(),
 		password:       resolvePassword(),
 		rootDir:        rootDir,
+		grpcPort:       resolveGRPCPort(),
+		enableGRPC:     resolveEnableGRPC(),
 		maxUploadBytes: resolveMaxUploadBytes(),
 	}, nil
 }
@@ -32,6 +36,8 @@ func (p *DevConfigProvider) GetUsername() string      { return p.username }
 func (p *DevConfigProvider) GetPassword() string      { return p.password }
 func (p *DevConfigProvider) GetRootDir() string       { return p.rootDir }
 func (p *DevConfigProvider) GetMaxUploadBytes() int64 { return p.maxUploadBytes }
+func (p *DevConfigProvider) GetGRPCPort() string      { return p.grpcPort }
+func (p *DevConfigProvider) EnableGRPC() bool         { return p.enableGRPC }
 func (p *DevConfigProvider) EnableTLS() bool          { return resolveBoolEnv("ENABLE_TLS", false) }
 func (p *DevConfigProvider) EnableAuth() bool         { return resolveBoolEnv("ENABLE_AUTH", false) }
 func (p *DevConfigProvider) EnableSignup() bool       { return resolveEnableSignup() }

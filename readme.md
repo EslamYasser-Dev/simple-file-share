@@ -58,12 +58,12 @@ Simple File Share is a modern web application that provides secure file manageme
 
 ### Backend
 - **Language**: Go 1.25+
-- **Web Framework**: Standard Library `net/http`
+- **Transports**: Standard Library `net/http` (web) and gRPC (`google.golang.org/grpc`) for mobile clients
 - **Authentication**: HTTP Basic Auth against a JSON-backed user store with PBKDF2-SHA256 password hashing
 - **TLS**: Built-in support with automatic certificate management
 - **Serving**: Serves the API and the built React frontend from a single container
 - **Testing**: Native Go testing with table-driven tests
-- **Documentation**: OpenAPI 3.0 (Swagger) specification
+- **Documentation**: OpenAPI 3.0 (Swagger) specification and a protobuf gRPC contract
 
 ### Frontend
 - **Framework**: React 19+ with TypeScript
@@ -191,16 +191,37 @@ GET /swagger
 - **Responses**:
   - `200`: Swagger UI interface
 
+### gRPC API (mobile)
+
+The same use cases are exposed over gRPC for native mobile clients. The proto
+contract lives at `backend/api/proto/fileshare/v1/fileshare.proto`; generated
+Go stubs live beside it.
+
+- **Services**
+  - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (admin)
+  - `fileshare.v1.FileService`: `ListFiles`, `GetFileInfo`, `SearchFiles`, `CreateDirectory`, `DeletePath`, `UpdateFileContent`, `UploadFile` (client streaming), `DownloadFile` (server streaming)
+- **Authentication**: HTTP Basic credentials in request metadata (`authorization: Basic ...`), matching the web API. `Register`, `Authenticate`, and `GetAuthInfo` are public.
+- **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 64 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk.
+- **Server**: health (`grpc.health.v1.Health`) and server reflection are enabled for tooling.
+- **Configuration**: `ENABLE_GRPC` (default `true`) and `GRPC_PORT` (default `50051`). TLS is reused from `ENABLE_TLS`.
+
+```bash
+# Inspect the schema (server reflection) with grpcurl
+grpcurl -plaintext localhost:50051 list fileshare.v1.FileService
+```
+
 ## 🏗️ Architecture
 
 ### Clean Architecture Layers
 
 ```mermaid
 graph TB
-    subgraph "Presentation Layer"
+    subgraph "Presentation Layer (Primary Adapters)"
         HTTP[HTTP Server]
         MW[Middleware]
         HANDLERS[Handlers]
+        GRPC[gRPC Server]
+        GRPCSVC[gRPC Services]
     end
     
     subgraph "Application Layer"
@@ -208,15 +229,17 @@ graph TB
         DOWNLOAD[Download Service]
         UPLOAD[Upload Service]
         ZIP[Zip Service]
+        AUTH_SVC[Auth Services]
     end
     
     subgraph "Domain Layer"
         MODELS[Models]
         PORTS[Ports]
+        POLICY[Path Scoper Policy]
         ERRORS[Errors]
     end
     
-    subgraph "Infrastructure Layer"
+    subgraph "Infrastructure Layer (Secondary Adapters)"
         REPO[File Repository]
         AUTH[Auth Provider]
         TLS[TLS Generator]
@@ -225,20 +248,28 @@ graph TB
     
     HTTP --> MW
     MW --> HANDLERS
+    GRPC --> GRPCSVC
     HANDLERS --> LIST
     HANDLERS --> DOWNLOAD
     HANDLERS --> UPLOAD
     HANDLERS --> ZIP
+    HANDLERS --> AUTH_SVC
+    GRPCSVC --> LIST
+    GRPCSVC --> DOWNLOAD
+    GRPCSVC --> UPLOAD
+    GRPCSVC --> AUTH_SVC
     
     LIST --> PORTS
     DOWNLOAD --> PORTS
     UPLOAD --> PORTS
     ZIP --> PORTS
+    AUTH_SVC --> PORTS
     
     PORTS --> REPO
     PORTS --> AUTH
     PORTS --> TLS
     PORTS --> LOG
+    POLICY --> PORTS
     
     REPO --> MODELS
     AUTH --> MODELS
@@ -393,6 +424,8 @@ The app ships as a **single self-contained Docker image** that serves both the R
 | `MAX_UPLOAD_BYTES` | `unlimited` | Maximum upload size. `unlimited`/`0` (default) caps nothing; set e.g. `2GB`, `500MB`, or a raw byte count to enforce a limit |
 | `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
 | `ENABLE_TLS` | `false` | Serve HTTPS with generated certs |
+| `ENABLE_GRPC` | `true` | Toggle the gRPC server for mobile clients |
+| `GRPC_PORT` | `50051` | gRPC listen port |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 

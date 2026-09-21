@@ -6,24 +6,19 @@ import (
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
-
-type contextKey string
-
-// Context key holding the authenticated user, injected by AuthMiddleware.
-const userContextKey contextKey = "user"
 
 // ContextWithUser returns a copy of ctx carrying the authenticated user.
 func ContextWithUser(ctx context.Context, user *models.User) context.Context {
-	return context.WithValue(ctx, userContextKey, user)
+	return authctx.WithUser(ctx, user)
 }
 
 // UserFromContext returns the authenticated user, or nil when requests are
 // served without auth (auth disabled, or a middleware that does not attach a
 // user). A nil user is treated as a system/admin view by the scoping layer.
 func UserFromContext(ctx context.Context) *models.User {
-	u, _ := ctx.Value(userContextKey).(*models.User)
-	return u
+	return authctx.UserFromContext(ctx)
 }
 
 // AuthMiddleware enforces Basic Auth via the AuthProvider port and stores the

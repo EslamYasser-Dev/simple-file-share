@@ -7,6 +7,10 @@ type ConfigProvider interface {
 	GetPassword() string
 	GetRootDir() string
 	GetMaxUploadBytes() int64
+	// GetGRPCPort is the TCP port the gRPC server listens on.
+	GetGRPCPort() string
+	// EnableGRPC toggles the gRPC primary adapter.
+	EnableGRPC() bool
 	EnableTLS() bool
 	EnableAuth() bool
 	// EnableSignup toggles public self-registration via POST /api/auth/register.

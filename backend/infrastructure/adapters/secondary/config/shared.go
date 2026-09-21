@@ -61,6 +61,16 @@ func resolveEnableSignup() bool {
 	return resolveBoolEnv("ENABLE_SIGNUP", true)
 }
 
+// resolveGRPCPort returns the gRPC listen port. Defaults to 50051.
+func resolveGRPCPort() string {
+	return getEnvFirst([]string{"GRPC_PORT"}, "50051")
+}
+
+// resolveEnableGRPC gates the gRPC primary adapter. Defaults to enabled.
+func resolveEnableGRPC() bool {
+	return resolveBoolEnv("ENABLE_GRPC", true)
+}
+
 // resolveMaxUploadBytes parses MAX_UPLOAD_BYTES. The value may be a plain
 // number of bytes or a human size such as "500MB", "2GB", "1TB". A value of 0,
 // "unlimited", or an unparseable value means no limit.

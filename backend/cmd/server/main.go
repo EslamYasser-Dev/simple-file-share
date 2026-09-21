@@ -6,6 +6,7 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	grpcapi "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/grpc"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
@@ -97,6 +98,40 @@ func main() {
 		cfg.GetMaxUploadBytes(),
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
+
+	if cfg.EnableGRPC() {
+		authService := grpcapi.NewAuthService(registerService, usersService, authProvider, cfg.EnableSignup())
+		fileService := grpcapi.NewFileService(
+			listService,
+			infoService,
+			searchService,
+			createDirService,
+			deleteService,
+			updateService,
+			uploadService,
+			downloadService,
+		)
+		grpcServer, err := grpcapi.NewServer(
+			cfg.GetGRPCPort(),
+			logger,
+			tlsGenerator,
+			cfg.EnableTLS(),
+			authProvider,
+			cfg.EnableAuth(),
+			authService,
+			fileService,
+		)
+		if err != nil {
+			logger.Fatal("Failed to create gRPC server", "error", err)
+			return
+		}
+		go func() {
+			if err := grpcServer.Start(); err != nil {
+				logger.Error("gRPC server failed", "error", err)
+			}
+		}()
+		defer grpcServer.Stop()
+	}
 
 	// Serve the built React frontend whenever present (both dev and production).
 	// Point STATIC_DIR at the directory containing index.html + assets. Serving the

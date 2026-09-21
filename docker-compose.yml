@@ -6,6 +6,7 @@ services:
     container_name: go-file-server
     ports:
       - "22010:22010"
+      - "50051:50051"
     volumes:
       - ./data:/data
     environment:
@@ -15,6 +16,8 @@ services:
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme
       ENABLE_SIGNUP: "true"
+      ENABLE_GRPC: "true"
+      GRPC_PORT: "50051"
       ENABLE_TLS: "false"
       ENABLE_AUTH: "true"
       MAX_UPLOAD_BYTES: "104857600"
