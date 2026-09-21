@@ -32,10 +32,10 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			respondJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "upload exceeds size limit"})
+			respondError(w, http.StatusRequestEntityTooLarge, "upload exceeds size limit")
 			return
 		}
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart request"})
+		respondError(w, http.StatusBadRequest, "invalid multipart request")
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// A non-EOF error means the stream is broken; retrying would
 			// loop forever, so fail the request instead.
-			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed multipart request"})
+			respondError(w, http.StatusBadRequest, "malformed multipart request")
 			return
 		}
 
@@ -90,12 +90,7 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(uploads) == 0 {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "no files uploaded"})
-		return
-	}
-
-	if len(uploads) == 1 {
-		respondJSON(w, http.StatusOK, dto.UploadResult{Path: uploads[0].Filename, Size: uploads[0].Size})
+		respondError(w, http.StatusBadRequest, "no files uploaded")
 		return
 	}
 

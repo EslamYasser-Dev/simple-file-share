@@ -27,7 +27,7 @@ func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pageData == nil {
-		respondJSON(w, http.StatusNotFound, map[string]string{"error": "not a directory"})
+		respondError(w, http.StatusNotFound, "not a directory")
 		return
 	}
 

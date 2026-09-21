@@ -123,7 +123,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<ApiResponse<
 
 export const api = {
   // File operations
-  uploadFile: async (file: File, path: string = ''): Promise<ApiResponse<{ path: string; size: number }>> => {
+  uploadFile: async (file: File, path: string = ''): Promise<ApiResponse<Array<{ path: string; size: number }>>> => {
     const formData = new FormData();
     formData.append('file', file);
     if (path) {

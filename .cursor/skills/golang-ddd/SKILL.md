@@ -50,14 +50,14 @@ infrastructure/adapters/secondary/ → FS, auth, config (outbound adapters)
 
 ## Conventions
 
-- Use `ports.ConfigProvider` for all config; env keys: `PORT`, `ROOT_DIR` (or `FILE_SHARE_ROOT`), `USERNAME`/`FILE_SHARE_USERNAME`, `PASSWORD`/`FILE_SHARE_PASSWORD`, `JWT_SECRET`, `MAX_UPLOAD_BYTES`, `APP_ENV`, `ENABLE_TLS`, `ENABLE_AUTH`.
+- Use `ports.ConfigProvider` for all config; env keys: `PORT`, `ROOT_DIR` (or `FILE_SHARE_ROOT`), `ADMIN_USERNAME`/`ADMIN_PASSWORD` (legacy `FILE_SHARE_USERNAME`/`FILE_SHARE_PASSWORD`), `MAX_UPLOAD_BYTES`, `APP_ENV`, `ENABLE_TLS`, `ENABLE_AUTH`, `ENABLE_SIGNUP`.
 - **Zero external dependencies** — stdlib only in `go.mod`.
+- Per-user path/permission policy lives in `domain/policy` (`PathScoper`), exposed via the `ports.PathScoper` interface and injected into services. Application services depend on the port, never the concrete type.
 - File metadata search uses in-memory `FileIndexRepository`; rebuilt on startup, kept in sync via `IndexedFileRepository`.
 - Production defaults `ROOT_DIR=/data` when unset.
-- Auth disabled in dev (`EnableAuth() == false`), enabled in production.
+- Auth is HTTP Basic against the user store; disabled in dev (`EnableAuth() == false`), enabled in production.
 - Return JSON from API handlers; map domain errors to HTTP status in `respondWithError`.
 - Close resources in loop body, never `defer` inside loops.
-- JWT `exp`/`iat` use Unix seconds (`Unix()`, not `UnixMilli()`).
 
 ## Checklist for new features
 

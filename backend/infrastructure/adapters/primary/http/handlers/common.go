@@ -9,7 +9,8 @@ import (
 
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
+	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {
@@ -18,37 +19,45 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+// respondError writes a standard JSON error body with the given status.
+func respondError(w http.ResponseWriter, status int, message string) {
+	respondJSON(w, status, dto.ErrorResponse{Error: message})
+}
+
 func respondWithError(w http.ResponseWriter, err error) {
 	if err == nil {
-		return
-	}
-
-	if errors.Is(err, domainerrors.ErrUserAlreadyExists) {
-		respondJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-		return
-	}
-	if errors.Is(err, domainerrors.ErrInvalidCredentials) {
-		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
-		return
-	}
-	if errors.Is(err, domainerrors.ErrUserNotFound) {
-		respondJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
 
 	var notFound *domainerrors.NotFoundError
 	var validation *domainerrors.ValidationError
 	var forbidden *domainerrors.ForbiddenError
+	var isDir *domainerrors.IsDirectoryError
+	var notDir *domainerrors.NotDirectoryError
+
+	status := http.StatusInternalServerError
+	message := "internal server error"
+
 	switch {
+	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
+		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, domainerrors.ErrInvalidCredentials):
+		status, message = http.StatusUnauthorized, err.Error()
+	case errors.Is(err, domainerrors.ErrUserNotFound):
+		status, message = http.StatusNotFound, err.Error()
 	case errors.As(err, &notFound):
-		respondJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		status, message = http.StatusNotFound, err.Error()
 	case errors.As(err, &validation):
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		status, message = http.StatusBadRequest, err.Error()
+	case errors.As(err, &isDir):
+		status, message = http.StatusConflict, err.Error()
+	case errors.As(err, &notDir):
+		status, message = http.StatusBadRequest, err.Error()
 	case errors.As(err, &forbidden):
-		respondJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-	default:
-		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		status, message = http.StatusForbidden, err.Error()
 	}
+
+	respondJSON(w, status, dto.ErrorResponse{Error: message})
 }
 
 // currentUser returns the authenticated user for this request. It is nil when

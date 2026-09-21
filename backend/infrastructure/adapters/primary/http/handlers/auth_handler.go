@@ -30,7 +30,7 @@ func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -99,7 +99,7 @@ func (h *AdminUsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	user := currentUser(r)
 	if user == nil || !user.IsAdmin {
-		respondJSON(w, http.StatusForbidden, map[string]string{"error": "admin access required"})
+		respondError(w, http.StatusForbidden, "admin access required")
 		return
 	}
 

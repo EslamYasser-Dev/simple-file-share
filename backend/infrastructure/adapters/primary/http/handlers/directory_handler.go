@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
 type DirectoryHandler struct {
@@ -27,7 +28,7 @@ func (h *DirectoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var req directoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -36,5 +37,5 @@ func (h *DirectoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, map[string]string{"message": "directory created"})
+	respondJSON(w, http.StatusCreated, dto.MessageResponse{Message: "directory created"})
 }

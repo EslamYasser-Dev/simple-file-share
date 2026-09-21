@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
 // UpdateFileHandler overwrites a text file's contents (used by the markdown
@@ -31,12 +32,12 @@ func (h *UpdateFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var req updateFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	req.Path = strings.TrimSpace(req.Path)
 	if req.Path == "" {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		respondError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
@@ -46,5 +47,5 @@ func (h *UpdateFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{"message": "file updated", "size": size})
+	respondJSON(w, http.StatusOK, dto.UpdateFileResponse{Message: "file updated", Size: size})
 }

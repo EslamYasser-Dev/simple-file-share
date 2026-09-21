@@ -55,8 +55,9 @@ func main() {
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 
 	listService := services.NewListFilesService(fileRepo, scoper)
-	downloadService := services.NewDownloadFileService(fileRepo, scoper)
+	fileDownloadService := services.NewDownloadFileService(fileRepo, scoper)
 	zipService := services.NewDownloadZipService(fileRepo, scoper)
+	downloadService := services.NewDownloadService(fileDownloadService, zipService)
 	uploadService := services.NewUploadService(fileRepo, scoper)
 	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
 	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
@@ -72,8 +73,8 @@ func main() {
 
 	routeHandlers := xhttp.RouteHandlers{
 		Files:      filesHandler,
-		Download:   handlers.NewDownloadHandler(downloadService, zipService),
-		View:       handlers.NewViewHandler(downloadService),
+		Download:   handlers.NewDownloadHandler(downloadService),
+		View:       handlers.NewViewHandler(fileDownloadService),
 		Upload:     handlers.NewUploadHandler(uploadService),
 		Update:     handlers.NewUpdateFileHandler(updateService),
 		Directory:  handlers.NewDirectoryHandler(createDirService),

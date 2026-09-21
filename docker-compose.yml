@@ -14,7 +14,6 @@ services:
       ROOT_DIR: /data
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme
-      JWT_SECRET: change-me-in-production
       ENABLE_SIGNUP: "true"
       ENABLE_TLS: "false"
       ENABLE_AUTH: "true"

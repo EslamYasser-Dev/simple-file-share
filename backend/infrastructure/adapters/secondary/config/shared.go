@@ -61,10 +61,6 @@ func resolveEnableSignup() bool {
 	return resolveBoolEnv("ENABLE_SIGNUP", true)
 }
 
-func resolveJWTSecret(fallback string) string {
-	return getEnvFirst([]string{"JWT_SECRET"}, fallback)
-}
-
 // resolveMaxUploadBytes parses MAX_UPLOAD_BYTES. The value may be a plain
 // number of bytes or a human size such as "500MB", "2GB", "1TB". A value of 0,
 // "unlimited", or an unparseable value means no limit.

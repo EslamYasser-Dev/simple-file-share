@@ -3,15 +3,12 @@ package xhttp
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 type contextKey string
-
-const userClaimsKey contextKey = "userClaims"
 
 // Context key holding the authenticated user, injected by AuthMiddleware.
 const userContextKey contextKey = "user"
@@ -47,35 +44,6 @@ func AuthMiddleware(authProvider ports.AuthProvider) func(http.Handler) http.Han
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(ContextWithUser(r.Context(), user)))
-		})
-	}
-}
-
-// JWTMiddleware enforces Bearer JWT authentication.
-func JWTMiddleware(jwtProvider ports.JWTProvider) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
-				return
-			}
-
-			const prefix = "Bearer "
-			if !strings.HasPrefix(authHeader, prefix) {
-				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
-				return
-			}
-
-			tokenString := authHeader[len(prefix):]
-			claims, err := jwtProvider.ValidateToken(tokenString)
-			if err != nil {
-				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), userClaimsKey, claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

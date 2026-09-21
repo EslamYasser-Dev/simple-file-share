@@ -83,10 +83,7 @@ func TestUploadSingleFilePersistsContent(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	var result dto.UploadResult
-	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	result := firstUpload(t, rec)
 	if result.Path != "hello.txt" || result.Size != int64(len("hello world 12345\n")) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
@@ -148,8 +145,7 @@ func TestUploadWithPathField(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	var result dto.UploadResult
-	_ = json.Unmarshal(rec.Body.Bytes(), &result)
+	result := firstUpload(t, rec)
 	want := filepath.ToSlash(filepath.Join("sub", "note.md"))
 	if result.Path != want {
 		t.Fatalf("path = %q, want %q", result.Path, want)
@@ -179,8 +175,7 @@ func TestUploadSanitizesDirectoryInFilename(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	var result dto.UploadResult
-	_ = json.Unmarshal(rec.Body.Bytes(), &result)
+	result := firstUpload(t, rec)
 	if result.Path != "evil.txt" {
 		t.Fatalf("path = %q, want sanitized basename evil.txt", result.Path)
 	}
@@ -201,4 +196,18 @@ func TestUploadEmptyBody(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
+}
+
+// firstUpload decodes the (always-array) upload response and returns its first
+// element, failing the test when the response is empty.
+func firstUpload(t *testing.T, rec *httptest.ResponseRecorder) dto.UploadResult {
+	t.Helper()
+	var results []dto.UploadResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected at least one upload result, body = %s", rec.Body.String())
+	}
+	return results[0]
 }

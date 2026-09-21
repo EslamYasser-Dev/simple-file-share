@@ -1,9 +1,9 @@
 package services
 
 import (
-	"os"
+	"errors"
 
-	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
@@ -32,8 +32,8 @@ func (s *GetFileInfoService) Execute(user *models.User, path string) (*models.Fi
 
 	info, err := s.fileRepo.GetFileInfo(physical)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, &errors.NotFoundError{Path: path}
+		if errors.Is(err, domainerrors.ErrNotFound) {
+			return nil, &domainerrors.NotFoundError{Path: path}
 		}
 		return nil, err
 	}

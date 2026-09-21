@@ -4,8 +4,8 @@
 # To deploy:
 #   1. Push this repo to GitHub.
 #   2. In Render: New -> Blueprint -> select the repo -> Apply.
-#   3. Copy the generated PASSWORD / JWT_SECRET values from the service's
-#      Environment tab (or set your own) and note the live URL.
+#   3. Copy the generated ADMIN_PASSWORD value from the service's Environment
+#      tab (or set your own) and note the live URL.
 #
 # NOTE: the Render free tier's filesystem is ephemeral and the service sleeps
 # after ~15 min of inactivity (uploads are lost on restart). This is fine for a
@@ -26,8 +26,6 @@ services:
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD
-        generateValue: true
-      - key: JWT_SECRET
         generateValue: true
       - key: ROOT_DIR
         value: /data

@@ -1,9 +1,9 @@
 package services
 
 import (
-	"io"
 	"path/filepath"
 
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
@@ -18,33 +18,37 @@ func NewDownloadZipService(fileRepo ports.FileRepository, scoper ports.PathScope
 	return &DownloadZipService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *DownloadZipService) Execute(user *models.User, path string) (io.ReadCloser, string, error) {
+func (s *DownloadZipService) Execute(user *models.User, path string) (*models.Download, error) {
 	fp, err := valueobjects.NewFilePath(path)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	physical, err := s.scoper.ReadPath(user, fp.Relative())
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if !isDir {
-		return nil, "", nil
+		return nil, &domainerrors.NotDirectoryError{Path: path}
 	}
 
 	zipStream, err := s.fileRepo.ZipDirectory(physical)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	name := filepath.Base(physical)
 	if name == "." || name == "" {
 		name = "root"
 	}
-	return zipStream, name + ".zip", nil
+	return &models.Download{
+		Stream:      zipStream,
+		Filename:    name + ".zip",
+		ContentType: "application/zip",
+	}, nil
 }

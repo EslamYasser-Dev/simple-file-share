@@ -6,7 +6,6 @@ type ConfigProvider interface {
 	GetUsername() string
 	GetPassword() string
 	GetRootDir() string
-	GetJWTSecret() string
 	GetMaxUploadBytes() int64
 	EnableTLS() bool
 	EnableAuth() bool

@@ -31,13 +31,14 @@ func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([
 			continue
 		}
 
-		if _, err := valueobjects.NewFilePath(filename); err != nil {
+		fp, err := valueobjects.NewFilePath(filename)
+		if err != nil {
 			content.Close()
 			execErrors = append(execErrors, err)
 			continue
 		}
 
-		physical, err := s.scoper.WritePath(user, filepath.ToSlash(filename))
+		physical, err := s.scoper.WritePath(user, fp.Relative())
 		if err != nil {
 			content.Close()
 			execErrors = append(execErrors, err)

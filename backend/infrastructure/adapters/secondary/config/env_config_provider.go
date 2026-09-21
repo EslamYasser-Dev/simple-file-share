@@ -7,7 +7,6 @@ type EnvConfigProvider struct {
 	username       string
 	password       string
 	rootDir        string
-	jwtSecret      string
 	maxUploadBytes int64
 	enableTLS      bool
 	enableAuth     bool
@@ -25,7 +24,6 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		username:       resolveUsername(),
 		password:       resolvePassword(),
 		rootDir:        rootDir,
-		jwtSecret:      resolveJWTSecret("change-me-in-production"),
 		maxUploadBytes: resolveMaxUploadBytes(),
 		enableTLS:      resolveBoolEnv("ENABLE_TLS", true),
 		enableAuth:     resolveBoolEnv("ENABLE_AUTH", true),
@@ -37,7 +35,6 @@ func (p *EnvConfigProvider) GetPort() string          { return p.port }
 func (p *EnvConfigProvider) GetUsername() string      { return p.username }
 func (p *EnvConfigProvider) GetPassword() string      { return p.password }
 func (p *EnvConfigProvider) GetRootDir() string       { return p.rootDir }
-func (p *EnvConfigProvider) GetJWTSecret() string     { return p.jwtSecret }
 func (p *EnvConfigProvider) GetMaxUploadBytes() int64 { return p.maxUploadBytes }
 func (p *EnvConfigProvider) EnableTLS() bool          { return p.enableTLS }
 func (p *EnvConfigProvider) EnableAuth() bool         { return p.enableAuth }

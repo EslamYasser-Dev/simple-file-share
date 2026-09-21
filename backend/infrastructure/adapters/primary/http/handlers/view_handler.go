@@ -46,23 +46,19 @@ func (h *ViewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := pathFromQuery(r)
-	stream, filename, err := h.fileService.Execute(currentUser(r), path)
+	download, err := h.fileService.Execute(currentUser(r), path)
 	if err != nil {
 		respondWithError(w, err)
 		return
 	}
-	if stream == nil {
-		respondJSON(w, http.StatusConflict, map[string]string{"error": "path is a directory"})
-		return
-	}
 
-	contentType := contentTypeFor(filename)
+	contentType := contentTypeFor(download.Filename)
 	if !inlineContentTypes[contentType] {
-		serveDownload(w, stream, filename, "application/octet-stream")
+		serveDownload(w, download.Stream, download.Filename, "application/octet-stream")
 		return
 	}
 
-	serveInline(w, stream, filename, contentType)
+	serveInline(w, download.Stream, download.Filename, contentType)
 }
 
 // contentTypeFor maps a filename to a media type, falling back to a generic

@@ -97,6 +97,9 @@ func (r *LocalFileRepository) GetFileInfo(path string) (*models.FileInfo, error)
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.ErrNotFound
+		}
 		return nil, err
 	}
 
