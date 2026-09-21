@@ -1,6 +1,7 @@
 package services
 
 import (
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
@@ -31,7 +32,7 @@ func (s *ListFilesService) Execute(user *models.User, path string) (*models.Page
 		return nil, err
 	}
 	if !isDir {
-		return nil, nil
+		return nil, &domainerrors.NotDirectoryError{Path: path}
 	}
 
 	files, err := s.fileRepo.ListDirectory(physical)
@@ -43,5 +44,5 @@ func (s *ListFilesService) Execute(user *models.User, path string) (*models.Page
 		f.Path = s.scoper.PhysicalToVirtual(user, f.Path)
 	}
 
-	return &models.PageData{Root: s.scoper.PhysicalToVirtual(user, physical), Files: files}, nil
+	return &models.PageData{Files: files}, nil
 }

@@ -26,10 +26,6 @@ func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
-	if pageData == nil {
-		respondError(w, http.StatusNotFound, "not a directory")
-		return
-	}
 
 	respondJSON(w, http.StatusOK, dto.FromFileInfos(pageData.Files))
 }
