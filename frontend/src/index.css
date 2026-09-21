@@ -3,6 +3,7 @@
 @theme {
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-arabic: "GE SS Two", "Inter", ui-sans-serif, system-ui, sans-serif;
 
   --color-void: #04050c;
   --color-abyss: #080b18;
@@ -59,6 +60,13 @@
   body,
   #root {
     height: 100%;
+  }
+
+  /* GE SS Two is the Arabic typeface; swap the sans/display stacks whenever
+     the document language is Arabic so every text element picks it up. */
+  html[lang="ar"] {
+    --font-sans: var(--font-arabic);
+    --font-display: var(--font-arabic);
   }
 
   body {
