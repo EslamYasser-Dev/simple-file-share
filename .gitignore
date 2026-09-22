@@ -16,6 +16,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.marscode
 .DS_Store
 *.suo
 *.ntvs*
@@ -32,3 +33,4 @@ backend/coverage.out
 
 # Runtime file storage
 data/
+.file-share-data/

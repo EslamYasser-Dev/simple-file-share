@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
-import { ArrowUp, ChevronRight, Download, Eye, FolderPlus, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
-import { api } from '../services/api';
+import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { buildUrl, authHeader, clearCredentials } from '../services/api';
 import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { FilePreview } from '../components/FilePreview';
+import { Modal } from '../components/Modal';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n';
 import { useFileStore } from '../store/fileStore';
@@ -19,8 +20,6 @@ export function Home() {
   const currentPath = useFileStore((s) => s.currentPath);
   const scope = useFileStore((s) => s.scope);
   const isLoading = useFileStore((s) => s.isLoading);
-  const isUploading = useFileStore((s) => s.isUploading);
-  const uploadProgress = useFileStore((s) => s.uploadProgress);
   const fetchFiles = useFileStore((s) => s.fetchFiles);
   const navigateTo = useFileStore((s) => s.navigateTo);
   const uploadFiles = useFileStore((s) => s.uploadFiles);
@@ -34,11 +33,12 @@ export function Home() {
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [dragOver, setDragOver] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
   const closePreview = useCallback(() => setPreviewItem(null), []);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { success, error } = useToast();
+  const { success, error, info } = useToast();
 
   const [optimisticFiles, removeOptimistic] = useOptimistic(
     files,
@@ -55,7 +55,11 @@ export function Home() {
 
   const handleUpload = async (fileList: FileList | null) => {
     if (readOnly || !fileList || fileList.length === 0) return;
-    const { uploaded, error: err } = await uploadFiles(fileList);
+    const { uploaded, error: err, cancelled } = await uploadFiles(fileList);
+    if (cancelled) {
+      info(t('home.uploadCancelled'));
+      return;
+    }
     if (err) {
       error(err);
       return;
@@ -64,7 +68,7 @@ export function Home() {
   };
 
   const handleDelete = async (item: FileItem) => {
-    if (!window.confirm(`${t('home.deleteConfirmTitle')}\n\n${t('home.deleteConfirmMessage', { name: item.name })}`)) return;
+    setDeleteTarget(null);
     startTransition(() => {
       removeOptimistic(item.path);
     });
@@ -79,13 +83,41 @@ export function Home() {
 
   const handleDownload = async (item: FileItem) => {
     try {
-      const blob = await api.downloadFile(item.isDir ? `${item.path}.zip` : item.path);
-      const url = URL.createObjectURL(blob);
+      // Use streaming download to avoid buffering the entire file in memory.
+      // Try File System Access API (Chrome/Edge) first for true streaming to disk.
+      const url = buildUrl('/api/files/download', { path: item.path });
+      const response = await fetch(url, { headers: authHeader() });
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearCredentials();
+          throw new Error('Not authorized');
+        }
+        throw new Error(`Download failed (${response.status})`);
+      }
+
+      const suggestedName = item.isDir ? `${item.name}.zip` : item.name;
+
+      // Immediate feedback so the user knows the download is starting.
+      info(t('home.downloadStarting'));
+
+      // Modern streaming save (Chromium-based browsers)
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as unknown as { showSaveFilePicker: (options: { suggestedName: string }) => Promise<FileSystemFileHandle> }).showSaveFilePicker({ suggestedName });
+        const writable = await handle.createWritable();
+        await response.body!.pipeTo(writable);
+        success(t('home.downloadComplete'));
+        return;
+      }
+
+      // Fallback: buffer into blob (Firefox/Safari)
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = item.isDir ? `${item.name}.zip` : item.name;
+      a.href = blobUrl;
+      a.download = suggestedName;
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
+      success(t('home.downloadComplete'));
     } catch (e) {
       error(e instanceof Error ? e.message : t('home.downloadFailed'));
     }
@@ -206,31 +238,13 @@ export function Home() {
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-              aria-label="Clear search"
+              aria-label={t('home.clearSearch')}
             >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
       </div>
-
-      {isUploading && (
-        <div className="glass-panel p-4">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="flex items-center gap-2 text-cyan-300">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t('home.uploading')}
-            </span>
-            <span className="text-cyan-300">{uploadProgress}%</span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all duration-300"
-              style={{ width: `${uploadProgress}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       <div
         className={`glass-panel overflow-hidden transition-all duration-300 ${
@@ -324,7 +338,7 @@ export function Home() {
                   </button>
                   {!readOnly && (
                     <button
-                      onClick={() => handleDelete(item)}
+                      onClick={() => setDeleteTarget(item)}
                       className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400"
                       title={t('common.delete')}
                     >
@@ -354,6 +368,40 @@ export function Home() {
         onClose={closePreview}
         onSaved={() => fetchFiles(currentPath)}
       />
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={t('home.deleteConfirmTitle')}
+      >
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-red-500/15 p-2 text-red-300">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-slate-300">
+              {t('home.deleteConfirmMessage', { name: deleteTarget?.name ?? '' })}
+            </p>
+            {deleteTarget?.isDir && (
+              <p className="text-xs text-slate-500">{t('home.deleteFolderNote')}</p>
+            )}
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            onClick={() => setDeleteTarget(null)}
+            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-white/10"
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            onClick={() => deleteTarget && handleDelete(deleteTarget)}
+            className="rounded-xl bg-red-500/90 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500"
+          >
+            {t('common.delete')}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

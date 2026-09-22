@@ -28,19 +28,28 @@ func main() {
 		return
 	}
 
+	// The storage root is owned exclusively by this server: validate it, create
+	// it when missing, and lock it down to owner-only permissions.
+	rootDir, err := fs.PrepareStorageRoot(cfg.GetRootDir())
+	if err != nil {
+		logger.Fatal("Invalid storage root", "error", err)
+		return
+	}
+	logger.Info("Storage root ready", "path", rootDir)
+
 	indexRepo := memory.NewFileIndexRepository()
-	localRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
+	localRepo := fs.NewLocalFileRepository(rootDir)
 	fileRepo := fs.NewIndexedFileRepository(localRepo, indexRepo)
 
 	rebuildService := services.NewRebuildIndexService(indexRepo)
-	if err := rebuildService.Execute(cfg.GetRootDir(), fs.WalkRoot); err != nil {
+	if err := rebuildService.Execute(rootDir, fs.WalkRoot); err != nil {
 		logger.Warn("File index rebuild failed", "error", err)
 	} else {
 		logger.Info("File search index ready")
 	}
 
 	scoper := policy.NewPathScoper()
-	userRepo := fs.NewUserFileRepository(cfg.GetRootDir())
+	userRepo := fs.NewUserFileRepository(rootDir)
 	hasher := auth.NewPBKDF2Hasher()
 
 	seedService := services.NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
@@ -135,8 +144,8 @@ func main() {
 
 	// Serve the built React frontend whenever present (both dev and production).
 	// Point STATIC_DIR at the directory containing index.html + assets. Serving the
-	// frontend from the Go binary lets Render host the whole app as a single
-	// web service (one URL) for the API and the UI.
+	// frontend from the Go binary lets one container host the whole app (the API
+	// and the UI) behind a single origin.
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "frontend/dist"

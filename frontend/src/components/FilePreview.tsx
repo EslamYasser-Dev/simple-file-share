@@ -134,7 +134,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
         setStatus('ready');
       } catch (e) {
         if (cancelled) return;
-        setErrorMessage(e instanceof Error ? e.message : 'Failed to load preview');
+        setErrorMessage(e instanceof Error ? e.message : t('preview.loadFailed'));
         setStatus('error');
       }
     })();
@@ -149,7 +149,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
       window.removeEventListener('keydown', handleKey);
       if (url) URL.revokeObjectURL(url);
     };
-  }, [item, kind, onClose, isEditing]);
+  }, [item, kind, onClose, isEditing, t]);
 
   if (!item) return null;
 
@@ -190,7 +190,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Preview ${item.name}`}
+      aria-label={t('preview.ariaLabel', { name: item.name })}
     >
       <div
         className="glass-panel flex h-full max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden"
@@ -318,7 +318,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
 
           {status === 'ready' && kind === 'text' && text !== null && (
             <pre className="h-full w-full overflow-auto rounded-lg border border-white/10 bg-[#04050c] p-4 text-xs leading-relaxed text-slate-300">
-              {text.length > 200_000 ? `${text.slice(0, 200_000)}\n\n… preview truncated` : text}
+              {text.length > 200_000 ? `${text.slice(0, 200_000)}\n\n${t('preview.truncated')}` : text}
             </pre>
           )}
         </div>
@@ -326,5 +326,3 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
     </div>
   );
 }
-
-export default FilePreview;

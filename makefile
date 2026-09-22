@@ -184,6 +184,17 @@ docker-logs: ## Tail Docker Compose logs
 	@$(COMPOSE) logs -f
 
 # ==============================================================================
+# GitHub Pages
+# ==============================================================================
+# The Pages UI is static; the Go API must be reachable at VITE_API_URL.
+#   make deploy-pages VITE_API_URL=https://api.example.com
+.PHONY: deploy-pages
+deploy-pages: ## Build the frontend and publish it to GitHub Pages
+	@echo "🌐 Deploying frontend to GitHub Pages..."
+	@bash scripts/deploy-pages.sh
+	@echo "✅ Pages deploy complete"
+
+# ==============================================================================
 # Housekeeping
 # ==============================================================================
 .PHONY: clean

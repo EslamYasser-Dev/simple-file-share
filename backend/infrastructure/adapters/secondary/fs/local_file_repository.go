@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
@@ -78,12 +79,19 @@ func (r *LocalFileRepository) ListDirectory(path string) ([]*models.FileInfo, er
 			childPath = parentPath + "/" + entry.Name()
 		}
 
+		resolved := filepath.Join(fullPath, entry.Name())
+		var version uint64
+		if !entry.IsDir() {
+			version = versionCount(resolved)
+		}
+
 		files = append(files, &models.FileInfo{
 			Name:     entry.Name(),
 			Path:     strings.TrimPrefix(childPath, "/"),
 			Size:     info.Size(),
 			IsDir:    entry.IsDir(),
 			Modified: info.ModTime(),
+			Version:  version,
 		})
 	}
 	return files, nil
@@ -97,10 +105,7 @@ func (r *LocalFileRepository) GetFileInfo(path string) (*models.FileInfo, error)
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, errors.ErrNotFound
-		}
-		return nil, err
+		return nil, errors.ErrNotFound
 	}
 
 	displayPath := "/" + filepath.ToSlash(strings.TrimPrefix(path, "/"))
@@ -114,7 +119,37 @@ func (r *LocalFileRepository) GetFileInfo(path string) (*models.FileInfo, error)
 		Size:     info.Size(),
 		IsDir:    info.IsDir(),
 		Modified: info.ModTime(),
+		Version:  versionCount(fullPath),
 	}, nil
+}
+
+// versionCount returns how many historical versions exist for a canonical
+// file path (stored as the monotonically numbered contents of `<file>.versions/`).
+func versionCount(fullPath string) uint64 {
+	entries, err := os.ReadDir(fullPath + ".versions")
+	if err != nil {
+		return 0
+	}
+	return uint64(len(entries))
+}
+
+// nextVersionNumber returns the first free slot in the version directory.
+func nextVersionNumber(fullPath string) int {
+	versionDir := fullPath + ".versions"
+	entries, err := os.ReadDir(versionDir)
+	if err != nil {
+		return 1
+	}
+	max := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if ver, err := strconv.Atoi(entry.Name()); err == nil && ver > max {
+			max = ver
+		}
+	}
+	return max + 1
 }
 
 func (r *LocalFileRepository) IsDirectory(path string) (bool, error) {
@@ -158,7 +193,7 @@ func (r *LocalFileRepository) CreateDirectory(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.MkdirAll(fullPath, 0755)
+	return os.MkdirAll(fullPath, storageDirPerm)
 }
 
 func (r *LocalFileRepository) DeletePath(path string) error {
@@ -174,6 +209,9 @@ func (r *LocalFileRepository) DeletePath(path string) error {
 	if info.IsDir() {
 		return os.RemoveAll(fullPath)
 	}
+	// Deleting a file also removes its version history so no orphaned
+	// snapshots linger on disk.
+	_ = os.RemoveAll(fullPath + ".versions")
 	return os.Remove(fullPath)
 }
 
@@ -185,11 +223,26 @@ func (r *LocalFileRepository) WriteFile(path string, reader io.ReadCloser) (int6
 		return 0, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullPath), storageDirPerm); err != nil {
 		return 0, err
 	}
 
-	dst, err := os.Create(fullPath)
+	// If the file already exists, snapshot it into `.versions/` so overwrites
+	// keep a recoverable history. The version directory is a sibling hidden
+	// path (`<file>.versions/`) containing monotonically numbered copies.
+	if _, statErr := os.Stat(fullPath); statErr == nil {
+		versionDir := fullPath + ".versions"
+		if err := os.MkdirAll(versionDir, storageDirPerm); err != nil {
+			return 0, err
+		}
+		verPath := filepath.Join(versionDir, strconv.Itoa(nextVersionNumber(fullPath)))
+		if err := os.Rename(fullPath, verPath); err != nil {
+			return 0, err
+		}
+	}
+
+	// Create with owner-only permissions so only the server can read uploads.
+	dst, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
@@ -197,15 +250,40 @@ func (r *LocalFileRepository) WriteFile(path string, reader io.ReadCloser) (int6
 	written, copyErr := io.Copy(dst, reader)
 	closeErr := dst.Close()
 	if copyErr != nil {
-		// Remove the partial file so failed uploads don't leave corrupt data.
+		// Remove the partial file and restore the previous version.
 		_ = os.Remove(fullPath)
+		_ = restoreLatestVersion(fullPath)
 		return written, copyErr
 	}
 	if closeErr != nil {
 		_ = os.Remove(fullPath)
+		_ = restoreLatestVersion(fullPath)
 		return written, closeErr
 	}
 	return written, nil
+}
+
+// restoreLatestVersion moves the newest numbered copy back onto the canonical
+// path. Used to roll saved history back when a fresh write fails.
+func restoreLatestVersion(fullPath string) error {
+	versionDir := fullPath + ".versions"
+	entries, err := os.ReadDir(versionDir)
+	if err != nil {
+		return nil
+	}
+	maxVer := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if ver, err := strconv.Atoi(entry.Name()); err == nil && ver > maxVer {
+			maxVer = ver
+		}
+	}
+	if maxVer == 0 {
+		return nil
+	}
+	return os.Rename(filepath.Join(versionDir, strconv.Itoa(maxVer)), fullPath)
 }
 
 func (r *LocalFileRepository) ZipDirectory(root string) (io.ReadCloser, error) {

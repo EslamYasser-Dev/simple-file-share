@@ -8,8 +8,12 @@ import { visualizer } from 'rollup-plugin-visualizer';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = env.VITE_API_URL || 'http://localhost:3000';
-  
+  // Sub-path the app is served from. GitHub project pages live under
+  // /<repo>/, so the deploy script/workflow sets VITE_BASE_PATH accordingly.
+  const base = env.VITE_BASE_PATH || '/';
+
   return {
+    base,
     plugins: [
       react(),
       tailwindcss(),

@@ -1,17 +1,10 @@
 import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { Activity, Loader2, Search, SearchX } from 'lucide-react';
 import { api } from '../services/api';
+import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { useI18n } from '../i18n';
 import { formatBytes, timeAgo } from '../lib/utils';
-
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDir: boolean;
-  modified: string;
-}
 
 export function Chat() {
   const { t } = useI18n();

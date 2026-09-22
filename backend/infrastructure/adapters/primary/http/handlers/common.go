@@ -71,7 +71,8 @@ func serveDownload(w http.ResponseWriter, stream io.ReadCloser, filename, conten
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	if _, err := io.Copy(w, stream); err != nil {
-		http.Error(w, "stream copy failed", http.StatusInternalServerError)
+		// Client likely disconnected; headers already sent, cannot write error status.
+		return
 	}
 }
 
@@ -84,7 +85,7 @@ func serveInline(w http.ResponseWriter, stream io.ReadCloser, filename, contentT
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	if _, err := io.Copy(w, stream); err != nil {
-		// Headers are already flushed; the client sees a truncated body.
+		// Headers already flushed; client disconnected.
 		return
 	}
 }

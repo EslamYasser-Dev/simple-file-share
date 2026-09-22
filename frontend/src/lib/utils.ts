@@ -7,6 +7,12 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+/** Format a transfer rate (bytes per second) like "1.2 MB/s". */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '—';
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
 /** Format an ISO date string into a localized date-time string. */
 export function formatDate(iso: string): string {
   if (!iso) return '—';

@@ -1,5 +1,5 @@
 import { useActionState, useCallback, useEffect, useState, useTransition } from 'react';
-import { Layout } from './components/Layout';
+import { AppBackground, Layout } from './components/Layout';
 import type { Page } from './components/Layout';
 import { Modal } from './components/Modal';
 import { ToastProvider } from './components/Toast';
@@ -195,8 +195,9 @@ function AuthGate() {
 
   if (status === 'checking') {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 text-slate-500">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-3 text-slate-500">
+        <AppBackground />
+        <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
         <p className="text-sm">{t('auth.connecting')}</p>
       </div>
     );
@@ -204,7 +205,8 @@ function AuthGate() {
 
   if (status === 'error') {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 px-4 text-center">
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <AppBackground />
         <AlertCircle className="h-10 w-10 text-red-400" />
         <div>
           <p className="text-sm font-medium text-slate-300">{t('auth.unableToReach')}</p>
@@ -212,7 +214,7 @@ function AuthGate() {
         </div>
         <button
           onClick={() => void probe()}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/30 transition-all duration-300 hover:shadow-cyan-400/50 hover:brightness-110"
         >
           <RefreshCw className="h-4 w-4" />
           {t('common.retry')}

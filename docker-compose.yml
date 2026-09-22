@@ -8,7 +8,11 @@ services:
       - "22010:22010"
       - "50051:50051"
     volumes:
-      - ./data:/data
+      # Named volume: Docker initializes it with the image's /data ownership
+      # (nobody), which the server requires to lock the storage root to 0700.
+      # To use a host bind mount instead, create the directory and chown it to
+      # uid/gid 65534 (nobody) first: `mkdir -p data && sudo chown 65534:65534 data`.
+      - file-data:/data
     environment:
       APP_ENV: production
       PORT: "22010"
@@ -28,3 +32,6 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+
+volumes:
+  file-data:

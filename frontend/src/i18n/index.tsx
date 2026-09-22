@@ -12,6 +12,8 @@ const en = {
   'nav.newFolder': 'New Folder',
   'nav.cloudStorage': 'Cloud Storage',
   'nav.language': 'Language',
+  'nav.theme': 'Theme',
+  'nav.config': 'Configuration',
   'nav.shared': 'Shared',
   'nav.admin': 'Users',
   'nav.signOut': 'Sign out',
@@ -28,6 +30,14 @@ const en = {
   'common.delete': 'Delete',
   'common.openInNewTab': 'Open in new tab',
   'common.back': 'Back',
+  'common.dismiss': 'Dismiss',
+
+  // Configuration panel
+  'config.theme.system': 'System',
+  'config.theme.dark': 'Dark',
+  'config.theme.light': 'Light',
+  'config.maxUploads': 'Max parallel uploads',
+  'config.hint': 'Applies to how many files upload at the same time (1–8).',
 
   // Auth
   'auth.connecting': 'Connecting...',
@@ -81,7 +91,17 @@ const en = {
   'home.upload': 'Upload',
   'home.uploading': 'Uploading...',
   'home.uploaded': 'Uploaded {n} file(s) successfully',
+  'home.uploadCancelled': 'Upload cancelled',
+  'home.cancelUpload': 'Cancel upload',
+  'home.cancelUploadTitle': 'Cancel upload?',
+  'home.cancelUploadMessage':
+    'The upload is still in progress. If you cancel now, the partially uploaded file will be discarded and you will need to start over.',
+  'home.keepUploading': 'Keep uploading',
+  'home.collapseUpload': 'Minimize upload indicator',
+  'home.expandUpload': 'Expand upload indicator',
   'home.deleted': 'Deleted "{name}"',
+  'home.downloadStarting': 'Preparing download...',
+  'home.downloadComplete': 'Download complete',
   'home.loadingFiles': 'Loading files...',
   'home.folderEmpty': 'This folder is empty',
   'home.uploadOrCreate': 'Upload files or create a new folder to get started',
@@ -96,10 +116,12 @@ const en = {
   'home.downloadZip': 'Download as ZIP',
   'home.download': 'Download',
   'home.downloadFailed': 'Download failed',
-  'home.deleteConfirmTitle': 'Delete file?',
+  'home.deleteConfirmTitle': 'Delete item?',
   'home.deleteConfirmMessage': 'Are you sure you want to delete "{name}"? This cannot be undone.',
+  'home.deleteFolderNote': 'This folder and everything inside it will be permanently removed.',
   'home.totalSize': 'Total size: {size}',
   'home.file': 'file',
+  'home.clearSearch': 'Clear search',
 
   // Summary
   'summary.title': 'Storage Summary',
@@ -140,6 +162,9 @@ const en = {
   'preview.saveFailed': 'Failed to save changes',
   'preview.saved': 'File saved',
   'preview.editing': 'Editing',
+  'preview.loadFailed': 'Failed to load preview',
+  'preview.truncated': '… preview truncated',
+  'preview.ariaLabel': 'Preview {name}',
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -154,6 +179,8 @@ const ar: Messages = {
   'nav.newFolder': 'مجلد جديد',
   'nav.cloudStorage': 'التخزين السحابي',
   'nav.language': 'اللغة',
+  'nav.theme': 'المظهر',
+  'nav.config': 'الإعدادات',
   'nav.shared': 'المشترك',
   'nav.admin': 'المستخدمون',
   'nav.signOut': 'تسجيل الخروج',
@@ -169,6 +196,14 @@ const ar: Messages = {
   'common.delete': 'حذف',
   'common.openInNewTab': 'فتح في تبويب جديد',
   'common.back': 'رجوع',
+  'common.dismiss': 'تجاهل',
+
+  // Configuration panel
+  'config.theme.system': 'النظام',
+  'config.theme.dark': 'داكن',
+  'config.theme.light': 'فاتح',
+  'config.maxUploads': 'أقصى رفع متزامن',
+  'config.hint': 'يحدد عدد الملفات التي تُرفع في وقت واحد (1–8).',
 
   'auth.connecting': 'جارٍ الاتصال...',
   'auth.unableToReach': 'تعذّر الوصول إلى الخادم',
@@ -216,7 +251,17 @@ const ar: Messages = {
   'home.upload': 'رفع',
   'home.uploading': 'جارٍ الرفع...',
   'home.uploaded': 'تم رفع {n} ملف بنجاح',
+  'home.uploadCancelled': 'تم إلغاء الرفع',
+  'home.cancelUpload': 'إلغاء الرفع',
+  'home.cancelUploadTitle': 'إلغاء الرفع؟',
+  'home.cancelUploadMessage':
+    'لا يزال الرفع جارياً. إذا ألغيت الآن، سيتم تجاهل الملف المرفوع جزئياً وستحتاج إلى البدء من جديد.',
+  'home.keepUploading': 'متابعة الرفع',
+  'home.collapseUpload': 'تصغير مؤشر الرفع',
+  'home.expandUpload': 'توسيع مؤشر الرفع',
   'home.deleted': 'تم حذف "{name}"',
+  'home.downloadStarting': 'جاري تحضير التحميل...',
+  'home.downloadComplete': 'اكتمل التحميل',
   'home.loadingFiles': 'جارٍ تحميل الملفات...',
   'home.folderEmpty': 'هذا المجلد فارغ',
   'home.uploadOrCreate': 'ارفع ملفات أو أنشئ مجلدًا جديدًا للبدء',
@@ -231,10 +276,12 @@ const ar: Messages = {
   'home.downloadZip': 'تنزيل كملف مضغوط',
   'home.download': 'تنزيل',
   'home.downloadFailed': 'فشل التنزيل',
-  'home.deleteConfirmTitle': 'حذف الملف؟',
+  'home.deleteConfirmTitle': 'حذف العنصر؟',
   'home.deleteConfirmMessage': 'هل أنت متأكد من حذف "{name}"؟ لا يمكن التراجع عن هذا الإجراء.',
+  'home.deleteFolderNote': 'سيتم حذف هذا المجلد وكل ما بداخله نهائياً.',
   'home.totalSize': 'الحجم الإجمالي: {size}',
   'home.file': 'ملف',
+  'home.clearSearch': 'مسح البحث',
 
   'summary.title': 'ملخص التخزين',
   'summary.overview': 'نظرة عامة على ملفاتك واستخدام التخزين',
@@ -272,6 +319,9 @@ const ar: Messages = {
   'preview.saveFailed': 'فشل حفظ التغييرات',
   'preview.saved': 'تم حفظ الملف',
   'preview.editing': 'جارٍ التعديل',
+  'preview.loadFailed': 'فشل تحميل المعاينة',
+  'preview.truncated': '… تم اقتطاع المعاينة',
+  'preview.ariaLabel': 'معاينة {name}',
 } ;
 
 interface I18nContextValue {

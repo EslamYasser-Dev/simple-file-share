@@ -1,8 +1,9 @@
 package services
 
 import (
-	"strings"
+	"errors"
 
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 )
 
@@ -17,9 +18,18 @@ func NewDownloadService(files *DownloadFileService, zips *DownloadZipService) *D
 	return &DownloadService{files: files, zips: zips}
 }
 
+// Execute streams a directory as a ZIP archive, or a regular file as-is. The
+// choice is made from the target's actual type — never from a ".zip" suffix,
+// which would make real `.zip` files impossible to download.
 func (s *DownloadService) Execute(user *models.User, path string) (*models.Download, error) {
-	if strings.HasSuffix(path, ".zip") {
-		return s.zips.Execute(user, strings.TrimSuffix(path, ".zip"))
+	download, err := s.zips.Execute(user, path)
+	if err == nil {
+		return download, nil
+	}
+
+	var notDir *domainerrors.NotDirectoryError
+	if !errors.As(err, &notDir) {
+		return nil, err
 	}
 	return s.files.Execute(user, path)
 }

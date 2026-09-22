@@ -12,8 +12,17 @@ const (
 	// defaultMaxUploadBytes = 0 means unlimited: uploads are only bounded by
 	// available disk space. Set MAX_UPLOAD_BYTES (e.g. "2GB", "500MB") to cap.
 	defaultMaxUploadBytes int64 = 0
+	// devStorageDirName is the dedicated, app-owned directory created under the
+	// working directory when ROOT_DIR is unset in development. Storage must never
+	// default to the working directory itself or a source folder (e.g.
+	// frontend/), because the server deletes and rewrites paths under the root.
+	devStorageDirName = ".file-share-data"
 )
 
+// resolveRootDir returns the storage root: an explicit ROOT_DIR/FILE_SHARE_ROOT
+// when set, /data in production, or a dedicated app directory in development.
+// It only resolves the path; callers must validate and create it via
+// fs.PrepareStorageRoot.
 func resolveRootDir() (string, error) {
 	for _, key := range []string{"ROOT_DIR", "FILE_SHARE_ROOT"} {
 		if v := os.Getenv(key); v != "" {
@@ -29,19 +38,7 @@ func resolveRootDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	candidates := []string{
-		filepath.Join(cwd, "data"),
-		filepath.Join(cwd, "frontend"),
-		filepath.Join(cwd, "..", "data"),
-		cwd,
-	}
-	for _, candidate := range candidates {
-		if _, statErr := os.Stat(candidate); statErr == nil {
-			return filepath.Abs(candidate)
-		}
-	}
-	return cwd, nil
+	return filepath.Join(cwd, devStorageDirName), nil
 }
 
 func resolvePort(fallback string) string {

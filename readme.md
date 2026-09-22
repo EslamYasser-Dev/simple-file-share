@@ -3,11 +3,11 @@
 ![CI](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/ci.yml/badge.svg?branch=master)
 ![Release](https://github.com/EslamYasser-Dev/simple-file-share/actions/workflows/release.yml/badge.svg)
 
-A high-performance, secure file sharing application built with Go and React, following clean architecture principles.
+A high-performance, secure file sharing application built with Go and React, structured as a hexagonal (ports & adapters) application.
 
 ## 🌟 Overview
 
-Simple File Share is a modern web application that provides secure file management capabilities with a clean, intuitive interface. Built with clean architecture principles, it offers a flexible foundation that can be extended with different storage backends and authentication mechanisms.
+Simple File Share is a modern web application that provides secure file management capabilities with a clean, intuitive interface. Its backend follows hexagonal architecture: a framework-free domain and application core surrounded by swappable primary adapters (HTTP, gRPC) and secondary adapters (filesystem, auth, config, logging), so storage backends and transports can be replaced independently.
 
 ## 🎯 Key Features
 
@@ -28,6 +28,8 @@ Simple File Share is a modern web application that provides secure file manageme
 ### 📁 Advanced File Operations
 - **Directory Browsing**: Clean HTML interface with file details
 - **Bulk Operations**: Upload/download multiple files or entire folders
+- **Live Upload Progress**: Byte-level progress and transfer rate (KB/s–GB/s) via XHR upload events, aggregated across multi-file batches, with a collapsible floating indicator and cancel + confirmation
+- **Broad Format Support**: Documents, images, archives and disk images (incl. `.iso`), video, and audio — matched by MIME type or extension
 - **On-Demand Zipping**: Download folders as ZIP archives with a single click
 - **File Metadata**: View file sizes, modification dates, and types
 
@@ -43,16 +45,18 @@ Simple File Share is a modern web application that provides secure file manageme
 
 ### 👥 Multi-User & Permissions
 - **Self-Service Signup**: Optional public registration (`ENABLE_SIGNUP`); the first account becomes an admin
-- **Private Storage**: Each user gets an isolated home directory, invisible to other users
+- **Private Storage**: Each regular user sees only their isolated home directory; requests for another user's namespace return `403`
 - **Global Shared Folder**: A common `shared/` space that every signed-in user can read (writes are admin-only)
 - **Admin Console**: Admins see every account with per-user file count and storage usage
 - **Bootstrap Admin**: An admin is seeded from `ADMIN_USERNAME`/`ADMIN_PASSWORD` on first run, so existing deployments keep working
 
-### 🏗️ Clean Architecture
-- **Modular Design**: Separated domain, application, and infrastructure layers
-- **Dependency Injection**: Easy to test and maintain
-- **Pluggable Storage**: Built with interfaces for easy storage backend swapping
-- **Comprehensive Logging**: Built-in structured logging for monitoring and debugging
+### 🏗️ Hexagonal Architecture
+- **Ports & Adapters**: A pure `domain` + `application` core with no framework imports; adapters depend inward, never the reverse
+- **Primary Adapters**: HTTP (`net/http`) and gRPC expose the same application services
+- **Secondary Adapters**: Filesystem repository, user store, config, TLS, and logging are all swappable behind domain ports
+- **Dependency Injection**: Adapters are wired once in `cmd/server/main.go`, keeping the core easy to test
+- **Pluggable Storage**: Implement the repository port to swap the local filesystem for S3 or another backend
+- **Structured Logging**: Built-in structured logging for monitoring and debugging
 
 ## 🛠️ Technology Stack
 
@@ -76,34 +80,47 @@ Simple File Share is a modern web application that provides secure file manageme
 
 ### Endpoints
 
-#### 1. List Directory or Download File
+#### 1. List Directory
 ```
-GET /api/files
+GET /api/files?path=<dir>
 ```
 - **Parameters**:
-  - `path` (query, optional): Directory path to list
+  - `path` (query, optional): Directory path to list (defaults to the user's root)
 - **Responses**:
-  - `200`: JSON directory listing
+  - `200`: JSON array of `{ name, path, size, isDir, modified, mimeType }`
   - `401`: Authentication required
   - `403`: Forbidden (path traversal or another user's private space)
   - `404`: Path not found
+  - `409`: Path is not a directory
 
-#### 2. Upload Files/Folders
+#### 2. Upload Files
 ```
 POST /api/upload
 Content-Type: multipart/form-data
 ```
 - **Parameters**:
-  - `file` (form-data): File(s) to upload
+  - `file` (form-data): One or more files to upload
   - `path` (form-data, optional): Target directory
 - **Responses**:
-  - `200`: Upload successful (HTML response)
+  - `201`: JSON array of uploaded `{ path, size }` objects
   - `400`: Invalid request
   - `401`: Authentication required
-  - `403`: Forbidden
+  - `403`: Forbidden (read-only shared folder or another user's space)
   - `413`: Payload too large
 
-#### 3. View File Inline
+#### 3. Download File or Folder
+```
+GET /api/files/download?path=<path>
+```
+- Streams the file, or builds a ZIP archive on the fly when `path` points at a directory. The choice is based on the target's actual type, so a regular file named `*.zip` downloads as-is.
+- **Responses**:
+  - `200`: File or ZIP stream
+  - `400`: Invalid path
+  - `401`: Authentication required
+  - `403`: Forbidden
+  - `404`: Path not found
+
+#### 4. View File Inline
 ```
 GET /api/files/view?path=<file>
 ```
@@ -117,7 +134,26 @@ GET /api/files/view?path=<file>
   - `404`: Path not found
   - `409`: Path is a directory
 
-#### 4. Update File Content
+#### 5. File Info
+```
+GET /api/files/info?path=<path>
+```
+- **Responses**:
+  - `200`: `{ name, path, size, isDir, modified, mimeType }`
+  - `401`: Authentication required
+  - `404`: Path not found
+
+#### 6. Search Files
+```
+GET /api/files/search?q=<query>&limit=<n>
+```
+- Recursively matches names/paths within the caller's visible scope.
+- **Responses**:
+  - `200`: JSON array of matching file entries
+  - `400`: Missing query
+  - `401`: Authentication required
+
+#### 7. Update File Content
 ```
 PUT /api/files/content
 Content-Type: application/json
@@ -133,7 +169,33 @@ Content-Type: application/json
   - `401`: Authentication required
   - `404`: Path not found
 
-#### 5. Health Check
+#### 8. Create Directory
+```
+POST /api/directories
+Content-Type: application/json
+```
+- **Body**: `{ "path": "reports/2026" }`
+- **Responses**:
+  - `201`: `{ "message": "directory created", "path": "reports/2026" }`
+  - `400`: Invalid path
+  - `401`: Authentication required
+  - `403`: Forbidden (read-only shared folder)
+  - `409`: Path already exists
+
+#### 9. Delete File or Folder
+```
+DELETE /api/files
+Content-Type: application/json
+```
+- **Body**: `{ "path": "old.txt" }`
+- **Responses**:
+  - `200`: `{ "message": "deleted", "path": "old.txt" }`
+  - `400`: Invalid path
+  - `401`: Authentication required
+  - `403`: Forbidden (read-only shared folder)
+  - `404`: Path not found
+
+#### 10. Health Check
 ```
 GET /health
 ```
@@ -145,7 +207,7 @@ GET /health
   }
   ```
 
-#### 6. Register Account
+#### 11. Register Account
 ```
 POST /api/auth/register
 Content-Type: application/json
@@ -158,7 +220,7 @@ Content-Type: application/json
   - `403`: Registration disabled
   - `409`: Username already exists
 
-#### 7. Auth Capabilities
+#### 12. Auth Capabilities
 ```
 GET /api/auth/info
 ```
@@ -166,7 +228,7 @@ GET /api/auth/info
 - **Responses**:
   - `200`: `{ "signupEnabled": true }`
 
-#### 8. Current User
+#### 13. Current User
 ```
 GET /api/auth/me
 ```
@@ -175,7 +237,7 @@ GET /api/auth/me
   - `200`: `{ "username": "alice", "isAdmin": false, "createdAt": "..." }`
   - `401`: Authentication required
 
-#### 9. List Users (admin only)
+#### 14. List Users (admin only)
 ```
 GET /api/admin/users
 ```
@@ -184,12 +246,13 @@ GET /api/admin/users
   - `401`: Authentication required
   - `403`: Admin access required
 
-#### 10. API Documentation
+#### 15. API Documentation
 ```
-GET /swagger
+GET /swagger       # Swagger UI
+GET /swagger.yaml  # OpenAPI 3.0 spec
 ```
 - **Responses**:
-  - `200`: Swagger UI interface
+  - `200`: Swagger UI interface or the raw OpenAPI document
 
 ### gRPC API (mobile)
 
@@ -212,69 +275,50 @@ grpcurl -plaintext localhost:50051 list fileshare.v1.FileService
 
 ## 🏗️ Architecture
 
-### Clean Architecture Layers
+### Hexagonal (Ports & Adapters) Layers
+
+Dependencies always point **inward**: adapters know the core, the core knows
+only its own ports and models. The `domain` layer imports nothing from
+`application` or `infrastructure`.
 
 ```mermaid
-graph TB
-    subgraph "Presentation Layer (Primary Adapters)"
-        HTTP[HTTP Server]
-        MW[Middleware]
-        HANDLERS[Handlers]
-        GRPC[gRPC Server]
-        GRPCSVC[gRPC Services]
+graph LR
+    subgraph PRIMARY["Primary Adapters (driving)"]
+        HTTP["HTTP: server · middleware · handlers"]
+        GRPC["gRPC: services · interceptors"]
     end
-    
-    subgraph "Application Layer"
-        LIST[List Service]
-        DOWNLOAD[Download Service]
-        UPLOAD[Upload Service]
-        ZIP[Zip Service]
-        AUTH_SVC[Auth Services]
+
+    subgraph CORE["Application Core"]
+        subgraph APP["application"]
+            SVC["Services: list · download · upload · auth …"]
+        end
+        subgraph DOMAIN["domain"]
+            PORTS["Ports (interfaces)"]
+            MODELS["Models · value objects"]
+            POLICY["Path scoper policy"]
+            ERRORS["Typed errors"]
+        end
     end
-    
-    subgraph "Domain Layer"
-        MODELS[Models]
-        PORTS[Ports]
-        POLICY[Path Scoper Policy]
-        ERRORS[Errors]
+
+    subgraph SECONDARY["Secondary Adapters (driven)"]
+        FS["Filesystem repository"]
+        USERS["User store"]
+        CONFIG["Config provider"]
+        LOG["Logger"]
+        TLS["TLS generator"]
     end
-    
-    subgraph "Infrastructure Layer (Secondary Adapters)"
-        REPO[File Repository]
-        AUTH[Auth Provider]
-        TLS[TLS Generator]
-        LOG[Logger]
-    end
-    
-    HTTP --> MW
-    MW --> HANDLERS
-    GRPC --> GRPCSVC
-    HANDLERS --> LIST
-    HANDLERS --> DOWNLOAD
-    HANDLERS --> UPLOAD
-    HANDLERS --> ZIP
-    HANDLERS --> AUTH_SVC
-    GRPCSVC --> LIST
-    GRPCSVC --> DOWNLOAD
-    GRPCSVC --> UPLOAD
-    GRPCSVC --> AUTH_SVC
-    
-    LIST --> PORTS
-    DOWNLOAD --> PORTS
-    UPLOAD --> PORTS
-    ZIP --> PORTS
-    AUTH_SVC --> PORTS
-    
-    PORTS --> REPO
-    PORTS --> AUTH
-    PORTS --> TLS
-    PORTS --> LOG
-    POLICY --> PORTS
-    
-    REPO --> MODELS
-    AUTH --> MODELS
-    TLS --> MODELS
-    LOG --> MODELS
+
+    HTTP --> SVC
+    GRPC --> SVC
+    SVC --> PORTS
+    SVC --> MODELS
+    POLICY --> MODELS
+    SVC --> ERRORS
+    FS -->|implements| PORTS
+    USERS -->|implements| PORTS
+    CONFIG -->|implements| PORTS
+    LOG -->|implements| PORTS
+    TLS -->|implements| PORTS
 ```
 
 ### Request Flow
@@ -345,6 +389,39 @@ graph LR
     REPO --> FS
 ```
 
+### Project Structure
+
+```
+.
+├── backend/
+│   ├── api/                          # Embedded assets
+│   │   ├── embed.go                  # Embeds swagger.yaml into the binary
+│   │   ├── swagger.yaml              # OpenAPI 3.0 specification
+│   │   └── proto/fileshare/v1/       # gRPC contract + generated Go stubs
+│   ├── application/services/         # Use-case orchestration (depends on ports only)
+│   ├── cmd/server/                   # Composition root: wires adapters, starts HTTP + gRPC
+│   ├── domain/                       # Framework-free core
+│   │   ├── errors/                   # Typed domain errors
+│   │   ├── models/                   # Entities and value objects
+│   │   ├── policy/                   # Path scoping / permission rules
+│   │   ├── ports/                    # Interfaces implemented by adapters
+│   │   └── valueobjects/
+│   └── infrastructure/
+│       └── adapters/
+│           ├── primary/              # Driving adapters: http/, grpc/, authctx/
+│           └── secondary/            # Driven adapters: fs/, auth/, config/, tls/, logging/, memory/
+├── frontend/                         # React + TypeScript + Vite SPA (see frontend/README.md)
+├── scripts/
+│   └── deploy-pages.sh               # Build + publish the frontend to GitHub Pages
+├── .github/workflows/
+│   ├── ci.yml                        # Format, vet, tests, lint, build
+│   ├── release.yml                   # Container image release
+│   └── deploy-pages.yml              # Frontend → GitHub Pages
+├── dockerfile                        # Multi-stage build (frontend → Go → distroless-ish runtime)
+├── docker-compose.yml
+└── makefile                          # Developer & CI targets
+```
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -367,7 +444,7 @@ graph LR
 
 3. **Configure environment variables**
    ```bash
-   export ROOT_DIR=/path/to/storage      # or FILE_SHARE_ROOT
+   export ROOT_DIR=/path/to/storage      # dedicated storage dir (or FILE_SHARE_ROOT)
    export ADMIN_USERNAME=admin           # bootstrap admin (first run only)
    export ADMIN_PASSWORD=securepassword
    export PORT=22010
@@ -376,6 +453,11 @@ graph LR
    export ENABLE_AUTH=false
    export ENABLE_TLS=false
    ```
+
+   If `ROOT_DIR` is unset in development the server uses a dedicated
+   `.file-share-data/` directory next to the working directory. It never falls
+   back to the working directory, `frontend/`, or the home directory, and it
+   rejects unsafe paths at startup.
 
 4. **Run the server**
    ```bash
@@ -408,7 +490,10 @@ graph LR
 
 ## ☁️ Deployment
 
-The app ships as a **single self-contained Docker image** that serves both the React frontend and the Go API, so any Docker-capable host (Render, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container.
+Two deployment shapes are supported:
+
+- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option B/C).
+- **Split** — publish the static UI to **GitHub Pages** and host the Go API separately (Option A). GitHub Pages cannot run the Go backend (uploads, auth, storage), so the two must be wired together via `VITE_API_URL`.
 
 ### Environment variables
 
@@ -416,7 +501,7 @@ The app ships as a **single self-contained Docker image** that serves both the R
 | --- | --- | --- |
 | `APP_ENV` | `development` | `production` enables auth; `ENABLE_AUTH`/`ENABLE_TLS` also gate features |
 | `PORT` | `22010` (dev `3000`) | HTTP listen port |
-| `ROOT_DIR` / `FILE_SHARE_ROOT` | `./data` (or `/data`) | Storage directory for uploaded files (contains per-user homes under `users/`) |
+| `ROOT_DIR` / `FILE_SHARE_ROOT` | `.file-share-data` (dev) / `/data` (prod) | Dedicated storage directory owned by the server. Created with owner-only permissions (`0700`); unsafe values (filesystem root, working directory, home, source tree, or symlink) are rejected at startup |
 | `STATIC_DIR` | `frontend/dist` | Directory containing the built React app (index.html + assets) |
 | `ADMIN_USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Bootstrap admin username, seeded only when no accounts exist |
 | `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password (**change in production**) |
@@ -429,17 +514,36 @@ The app ships as a **single self-contained Docker image** that serves both the R
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
-### Option A — Render (free, recommended for a quick demo)
+### Option A — GitHub Pages (frontend) + hosted API
 
-A ready-to-use [Render Blueprint](render.yaml) is included:
+GitHub Pages serves the static React build; the Go API still runs on a Docker
+host (Option B/C). Cross-origin requests already work because the server sends
+permissive CORS headers.
 
-1. Push this repository to GitHub.
-2. At https://dashboard.render.com select **New → Blueprint**, choose the repository and branch (`main`), then **Apply**.
-3. Render reads `render.yaml` (web service, `/health` health check, auto-deploy) and builds the image.
-4. Open the service's **Environment** tab and copy the auto-generated `ADMIN_PASSWORD`.
-5. Sign in at the live URL with username `admin` and that generated `ADMIN_PASSWORD`.
+**1. Deploy the API** using Option B/C below, then note its public origin
+(e.g. `https://api.example.com`).
 
-**Free-tier caveats:** Render's free web service sleeps after ~15 min of inactivity and its filesystem is ephemeral — uploaded files are lost on restart/redeploy. This is fine for a demo; for persistent storage enable a paid plan or mount a Render **Disk** at `/data`.
+**2. Publish the UI** — either automatically with the included GitHub Actions
+workflow, or manually with the deploy script:
+
+- **Actions (recommended):** in **Settings → Pages** set the source to
+  **GitHub Actions**, then in **Settings → Secrets and variables → Actions →
+  Variables** add `VITE_API_URL` = your API origin. Optionally add
+  `VITE_BASE_PATH` (`/` for `<user>.github.io` user/org pages; it defaults to
+  `/<repo>/` for project pages). Pushing to `main` (or running the workflow
+  manually) builds and deploys the frontend.
+
+- **Script:**
+  ```bash
+  VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh
+  # or: make deploy-pages VITE_API_URL=https://api.example.com
+  ```
+  The script runs `npm ci && npm run build`, adds the SPA `404.html` fallback
+  and `.nojekyll`, and force-pushes the result to the `gh-pages` branch. Then
+  set **Settings → Pages → Source: Deploy from a branch → `gh-pages` / root**.
+
+> **Auth note:** the UI signs in with HTTP Basic Auth against the API. Serve the
+> API over HTTPS so credentials are never sent in the clear.
 
 ### Option B — Any Docker host
 
@@ -447,10 +551,10 @@ A ready-to-use [Render Blueprint](render.yaml) is included:
 # Build the image (frontend + backend)
 docker build -t simple-file-share .
 
-# Run it
+# Run it (named volume inherits the image's /data ownership)
 docker run -d --name file-share \
   -p 22010:22010 \
-  -v "$PWD/data:/data" \
+  -v file-share-data:/data \
   -e APP_ENV=production \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD='your-strong-password' \
@@ -462,6 +566,11 @@ docker-compose up --build
 
 Then open `http://localhost:22010`.
 
+> **Bind mounts:** if you prefer `-v "$PWD/data:/data"`, the server runs as
+> `nobody` (uid/gid 65534) and must own `/data` to lock it to `0700`. Create the
+> directory and give it to that user first:
+> `mkdir -p data && sudo chown 65534:65534 data`.
+
 ### Option C — Pull the published image
 
 Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) triggers the
@@ -471,7 +580,7 @@ release workflow, which builds the image and publishes it to
 ```bash
 docker pull ghcr.io/eslamyasser-dev/simple-file-share:latest
 docker run -d --name file-share -p 22010:22010 \
-  -v "$PWD/data:/data" \
+  -v file-share-data:/data \
   -e APP_ENV=production -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD='your-strong-password' \
   ghcr.io/eslamyasser-dev/simple-file-share:latest
 ```
@@ -479,15 +588,16 @@ docker run -d --name file-share -p 22010:22010 \
 ### Option D — Local production-mode smoke test
 
 ```bash
-cd frontend && npm run build
-cd ..
+make build-local                       # builds ./bin/file-share
+cd frontend && npm run build && cd ..  # builds frontend/dist
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
-ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./backend-file-server & # or: go run ./backend/cmd/server
+ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
 # -> http://localhost:8090 serves the UI; API at /api/*; health at /health
 ```
 
 ## 🛡️ Security Considerations
 
+- **Dedicated storage**: `ROOT_DIR` is the single directory the server owns. It is created with owner-only permissions (`0700`), and the server refuses to start if it points at a filesystem root, the working directory, the home directory, a source checkout, or a symlink. Uploaded directories are `0700` and files `0600`.
 - Always use strong passwords
 - Keep TLS certificates up to date
 - Disable public signup (`ENABLE_SIGNUP=false`) on private deployments
@@ -503,50 +613,41 @@ ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./backend-file-server
 ### Backend Tests
 ```bash
 cd backend
-go test ./...
+go test ./...              # unit + adapter tests
+go test -race ./...        # with the race detector (what CI runs)
 ```
 
-### Frontend Tests
+Coverage is reported with `make coverage` (HTML) and enforced in CI with a
+**20% floor** (`make coverage-check`, override with `COVER_MIN`). The current
+suite sits at roughly **27%** overall, with the domain policy, auth, gRPC, and
+handler packages much higher.
+
+### Frontend
+The frontend currently has no unit-test runner; CI type-checks, lints, and
+builds it instead:
 ```bash
 cd frontend
-npm test
+npm run lint
+npm run build
 ```
 
-### Integration Tests
+### Full suite
 ```bash
-# Run the full test suite
-make test
+make test        # backend tests + frontend tests (frontend skipped when absent)
+make lint        # gofmt check + go vet + eslint
 ```
 
 ## 📊 Code Quality
 
-### Code Smells Fixed
-- ✅ **Hardcoded Values**: Moved to constants file
-- ✅ **Resource Leaks**: Proper resource cleanup in upload service
-- ✅ **Error Handling**: Improved error handling patterns
-- ✅ **Security**: Added input validation utilities
-- ✅ **Architecture**: Better separation of concerns
-- ✅ **Unused Imports**: Removed unused dependencies
-- ✅ **Magic Numbers**: Replaced with named constants
-
-### Code Metrics
-- **Test Coverage**: >80% (target)
-- **Cyclomatic Complexity**: <10 per function
-- **Code Duplication**: <5%
-- **Security Vulnerabilities**: 0 (target)
-
-### Architecture Quality
-```mermaid
-pie title Code Quality Metrics
-    "Clean Code" : 85
-    "Test Coverage" : 80
-    "Documentation" : 90
-    "Security" : 95
-```
+- ✅ **Layered boundaries**: `domain` and `application` contain no framework imports
+- ✅ **Typed errors**: Domain errors are mapped to HTTP/gRPC status codes in the adapters
+- ✅ **Resource safety**: Upload/download streams are closed via `defer`; ZIPs are built on the fly
+- ✅ **Input validation**: Paths are normalized and scoped through the domain policy
+- ✅ **CI gates**: module tidiness, `gofmt`, `go vet`, race tests with a coverage floor, ESLint, type check, and a Docker build
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Contributions are welcome — open an issue or submit a pull request.
 
 ### Development Workflow
 1. Fork the repository
@@ -562,7 +663,7 @@ This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
   - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
-  - **Frontend** (Vite/React): `tsc` type check, ESLint, tests, production build, with `dist/` uploaded as an artifact
+  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
   - **Docker**: builds the production image (no push) to verify the Dockerfile
   - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
@@ -571,13 +672,18 @@ This repository uses GitHub Actions for continuous integration and delivery.
   - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
 
+- **Pages Workflow**: `.github/workflows/deploy-pages.yml`
+  - Builds the frontend (with `VITE_API_URL` from repository variables) and publishes it to **GitHub Pages**
+  - Runs on pushes touching `frontend/` or via manual dispatch
+
 ### Make targets
 
 ```bash
-make test      # run the full backend + frontend test suite
-make lint      # gofmt + go vet + frontend eslint
-make build     # build the backend binary into bin/
-make run       # build and start the server (see makefile for env defaults)
+make test          # run the full backend + frontend test suite
+make lint          # gofmt + go vet + frontend eslint
+make build         # build the backend binary into bin/
+make run           # build and start the server (see makefile for env defaults)
+make deploy-pages  # build the frontend and publish it to GitHub Pages
 ```
 
 ### How to cut a release
@@ -590,15 +696,15 @@ git push origin v1.0.0
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Released under the MIT License.
 
 ## ✨ What Makes It Unique
 
-1. **Clean Architecture**: The codebase follows clean architecture principles, making it maintainable and testable
-2. **No External Dependencies**: Built using Go's standard library for maximum compatibility
+1. **Hexagonal Architecture**: A framework-free core with HTTP and gRPC primary adapters sharing the same use cases, and swappable secondary adapters
+2. **Minimal Dependencies**: The web server and file operations use Go's standard library; the only third-party modules are gRPC and protobuf for the mobile API
 3. **Streaming Architecture**: Handles large files efficiently with minimal memory usage
 4. **Production Ready**: Includes health checks, proper error handling, and structured logging
-5. **Flexible Storage**: Easy to implement different storage backends (local filesystem, S3, etc.)
+5. **Flexible Storage**: Implement the repository port to add different storage backends (local filesystem, S3, etc.)
 6. **Self-Contained**: No database required - perfect for simple deployments
 7. **Multi-User**: Per-user private storage, a global shared folder, and an admin console
 8. **Input Validation**: Comprehensive validation for security and reliability
@@ -620,13 +726,15 @@ For support, please open an issue in the GitHub repository.
 - [ ] **Mobile App**: React Native mobile application
 - [ ] **Analytics**: Usage analytics and reporting
 
-## 📈 Performance Benchmarks
+## 📈 Performance Notes
 
-- **File Upload**: 100MB/s (local storage)
-- **File Download**: 200MB/s (local storage)
-- **Concurrent Users**: 1000+ (with proper hardware)
-- **Memory Usage**: <50MB base + file buffers
-- **Response Time**: <100ms for API calls
+Rather than published benchmarks, the design keeps resource usage predictable:
+
+- Uploads are written as a stream, so memory stays flat regardless of file size
+- Downloads stream directly from disk; folder downloads are zipped on the fly
+- The gRPC API streams uploads and downloads in 64 KiB chunks
+- Storage indexing is in-memory, so listing is fast at the cost of a scan on startup
+- No external database, cache, or message broker to operate
 
 ---
 

@@ -128,6 +128,7 @@ func WalkRoot(rootDir string) ([]*models.FileInfo, error) {
 			Size:     info.Size(),
 			IsDir:    d.IsDir(),
 			Modified: info.ModTime(),
+			Version:  versionCount(fullPath),
 		})
 		return nil
 	})
@@ -139,7 +140,9 @@ func shouldSkipIndexPath(path string) bool {
 		return true
 	}
 	base := filepath.Base(path)
-	return strings.HasPrefix(base, ".")
+	// Hidden metadata (dotfiles) and version-history siblings of files are
+	// never surfaced to users or the search index.
+	return strings.HasPrefix(base, ".") || strings.HasSuffix(base, ".versions")
 }
 
 var _ ports.FileRepository = (*IndexedFileRepository)(nil)

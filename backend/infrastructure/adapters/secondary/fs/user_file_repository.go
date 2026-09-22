@@ -135,7 +135,7 @@ func (r *UserFileRepository) loadLocked() (map[string]userDocument, error) {
 }
 
 func (r *UserFileRepository) saveLocked(docs map[string]userDocument) error {
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(r.path), storageDirPerm); err != nil {
 		return fmt.Errorf("create users dir: %w", err)
 	}
 

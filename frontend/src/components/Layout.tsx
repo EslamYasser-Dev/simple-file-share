@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -11,9 +12,12 @@ import {
   Share2,
   Users,
   LogOut,
+  Settings,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useAuthStore } from '../store/authStore';
+import { useConfigStore } from '../store/configStore';
+import { ConfigPanel } from './ConfigPanel';
 
 export type Page = 'files' | 'shared' | 'summary' | 'chat' | 'admin';
 
@@ -45,6 +49,16 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
   const isRtl = dir === 'rtl';
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.isAdmin ?? false;
+  const theme = useConfigStore((s) => s.theme);
+  const setTheme = useConfigStore((s) => s.setTheme);
+  const [showConfig, setShowConfig] = useState(false);
+
+  // Apply the active theme to the <html> element so CSS variables switch.
+  useEffect(() => {
+    const root = document.documentElement;
+    const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme;
+    root.classList.toggle('light', resolved === 'light');
+  }, [theme]);
 
   const NAV_ITEMS: { key: Page; label: string; icon: LucideIcon }[] = [
     { key: 'files', label: t('nav.myFiles'), icon: FolderOpen },
@@ -171,6 +185,38 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
               </button>
             </div>
           </div>
+
+          {/* Configuration panel */}
+          <button
+            onClick={() => setShowConfig(true)}
+            className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-slate-300 transition-all duration-300 hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+            title={t('nav.config')}
+            aria-label={t('nav.config')}
+          >
+            <Settings className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">{t('nav.config')}</span>
+          </button>
+
+{/* Theme toggle */}
+          <div className="flex items-center gap-2 px-1 pt-2">
+            <div
+              role="switch"
+              aria-checked={theme === 'light'}
+              tabIndex={0}
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+              className="relative h-4 w-8 cursor-pointer rounded-full border border-white/20 bg-white/10 transition-colors"
+              aria-label={t('nav.theme')}
+              title={t('nav.theme')}
+            >
+              <span
+                className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)] transition-all duration-300 ${
+                  theme === 'light' ? 'left-4' : 'left-0.5'
+                }`}
+              />
+            </div>
+            <span className="hidden text-xs text-slate-400 md:inline">{t('nav.theme')}</span>
+          </div>
         </div>
       </aside>
 
@@ -180,6 +226,8 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
           <div className="animate-rise">{children}</div>
         </div>
       </main>
+
+      <ConfigPanel open={showConfig} onClose={() => setShowConfig(false)} />
     </div>
   );
 }

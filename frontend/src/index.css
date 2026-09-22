@@ -10,6 +10,9 @@
   --color-neon-cyan: #22d3ee;
   --color-neon-violet: #a855f7;
   --color-neon-fuchsia: #f0abfc;
+  --color-neon-cyan-rgb: 34, 211, 238;
+  --color-neon-violet-rgb: 168, 85, 247;
+  --color-neon-fuchsia-rgb: 244, 166, 252;
 
   --animate-aurora: aurora 22s ease-in-out infinite alternate;
   --animate-float: float 9s ease-in-out infinite;
@@ -60,13 +63,34 @@
   body,
   #root {
     height: 100%;
+    transition-property: color background-color border-color text-decoration-color text-emphasis-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
   }
 
-  /* GE SS Two is the Arabic typeface; swap the sans/display stacks whenever
-     the document language is Arabic so every text element picks it up. */
-  html[lang="ar"] {
-    --font-sans: var(--font-arabic);
-    --font-display: var(--font-arabic);
+  /* Dark mode (default) */
+  html:not(.light),
+  html:not(.light) body,
+  html:not(.light) #root {
+    --color-void: #04050c;
+    --color-abyss: #080b18;
+    --color-neon-cyan: #22d3ee;
+    --color-neon-violet: #a855f7;
+    --color-neon-fuchsia: #f0abfc;
+  }
+
+  /* Light mode */
+  html.light,
+  html.light body,
+  html.light #root {
+    --color-void: #f8fafc;
+    --color-abyss: #f1f5f9;
+    --color-neon-cyan: #0891b2;
+    --color-neon-violet: #8b5cf6;
+    --color-neon-fuchsia: #d946ef;
+    --color-neon-cyan-rgb: 8, 145, 178;
+    --color-neon-violet-rgb: 139, 92, 246;
+    --color-neon-fuchsia-rgb: 217, 70, 239;
   }
 
   body {
@@ -74,11 +98,11 @@
     padding: 0;
     background-color: var(--color-void);
     background-image:
-      radial-gradient(60rem 60rem at 12% -10%, rgba(34, 211, 238, 0.10), transparent 60%),
-      radial-gradient(50rem 50rem at 100% 0%, rgba(168, 85, 247, 0.12), transparent 55%),
-      radial-gradient(55rem 55rem at 50% 120%, rgba(232, 121, 249, 0.08), transparent 60%);
+      radial-gradient(60rem 60rem at 12% -10%, rgba(var(--color-neon-cyan-rgb), 0.10), transparent 60%),
+      radial-gradient(50rem 50rem at 100% 0%, rgba(var(--color-neon-violet-rgb), 0.12), transparent 55%),
+      radial-gradient(55rem 55rem at 50% 120%, rgba(var(--color-neon-fuchsia-rgb), 0.08), transparent 60%);
     background-attachment: fixed;
-    color: #e8ecf6;
+    color: #e2e8f0;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -107,7 +131,7 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #2b3a5c #06080f;
+    scrollbar-color: var(--color-abyss) var(--color-void);
   }
 
   *::-webkit-scrollbar {
@@ -116,16 +140,16 @@
   }
 
   *::-webkit-scrollbar-track {
-    background: #06080f;
+    background: var(--color-void);
   }
 
   *::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #22d3ee55, #a855f755);
+    background: linear-gradient(180deg, var(--color-neon-cyan-rgb)55, var(--color-neon-violet-rgb)55);
     border-radius: 9999px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #22d3eeaa, #a855f7aa);
+    background: linear-gradient(180deg, var(--color-neon-cyan-rgb)aa, var(--color-neon-violet-rgb)aa);
   }
 }
 

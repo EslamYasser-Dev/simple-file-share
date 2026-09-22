@@ -29,7 +29,7 @@ export function clearCredentials(): void {
   }
 }
 
-function authHeader(): Record<string, string> {
+export function authHeader(): Record<string, string> {
   const cred = loadCredentials();
   return cred ? { Authorization: `Basic ${cred}` } : {};
 }
@@ -66,7 +66,7 @@ export interface ApiResponse<T = unknown> {
  * is unset the app runs on the same origin as the API, so relative paths must
  * be resolved against `window.location.origin` (a bare `new URL('/api')` throws).
  */
-function buildUrl(endpoint: string, params?: Record<string, string | number>): string {
+export function buildUrl(endpoint: string, params?: Record<string, string | number>): string {
   const base = (API_BASE_URL || window.location.origin).replace(/\/+$/, '');
   const url = new URL(`${base}${endpoint}`);
   if (params) {
@@ -121,19 +121,94 @@ async function request<T>(url: string, init?: RequestInit): Promise<ApiResponse<
   return handleResponse<T>(response);
 }
 
+/** Normalise an XHR response into an `ApiResponse`, mirroring `handleResponse`. */
+function parseXhrResponse<T>(xhr: XMLHttpRequest): ApiResponse<T> {
+  if (xhr.status === 401) {
+    clearCredentials();
+    return { error: 'Invalid username or password', unauthorized: true };
+  }
+  if (xhr.status < 200 || xhr.status >= 300) {
+    const body = xhr.responseText || '';
+    let message = `Request failed (${xhr.status})`;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { error?: string; message?: string };
+        message = parsed.error || parsed.message || body;
+      } catch {
+        message = body;
+      }
+    }
+    return { error: message };
+  }
+  if (!xhr.responseText) {
+    return {};
+  }
+  try {
+    return { data: JSON.parse(xhr.responseText) as T };
+  } catch {
+    return { error: 'Failed to parse response' };
+  }
+}
+
 export const api = {
   // File operations
-  uploadFile: async (file: File, path: string = ''): Promise<ApiResponse<Array<{ path: string; size: number }>>> => {
+  //
+  // Uploaded with XMLHttpRequest rather than fetch: fetch cannot report request
+  // upload progress, so the UI progress bar would sit at 0% until completion.
+  // `options.onProgress` receives bytes sent / total for the request body, and
+  // `options.signal` aborts the upload (resolving with `{ error }`).
+  uploadFile: (
+    file: File,
+    path: string = '',
+    options: {
+      onProgress?: (loaded: number, total: number) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<ApiResponse<Array<{ path: string; size: number }>>> => {
     const formData = new FormData();
     formData.append('file', file);
     if (path) {
       formData.append('path', path);
     }
 
-    return request(buildUrl('/api/upload'), {
-      method: 'POST',
-      headers: { ...authHeader() },
-      body: formData,
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      let settled = false;
+      let removeAbortListener: (() => void) | undefined;
+
+      const settle = (result: ApiResponse<Array<{ path: string; size: number }>>) => {
+        if (settled) return;
+        settled = true;
+        removeAbortListener?.();
+        resolve(result);
+      };
+
+      const abort = () => xhr.abort();
+
+      xhr.open('POST', buildUrl('/api/upload'));
+      for (const [key, value] of Object.entries(authHeader())) {
+        xhr.setRequestHeader(key, value);
+      }
+
+      xhr.upload.onprogress = (event) => {
+        if (options.onProgress && event.lengthComputable) {
+          options.onProgress(event.loaded, event.total);
+        }
+      };
+      xhr.onload = () => settle(parseXhrResponse<Array<{ path: string; size: number }>>(xhr));
+      xhr.onerror = () => settle({ error: 'Network request failed' });
+      xhr.onabort = () => settle({ error: 'Upload cancelled' });
+
+      if (options.signal) {
+        if (options.signal.aborted) {
+          settle({ error: 'Upload cancelled' });
+          return;
+        }
+        options.signal.addEventListener('abort', abort);
+        removeAbortListener = () => options.signal?.removeEventListener('abort', abort);
+      }
+
+      xhr.send(formData);
     });
   },
 

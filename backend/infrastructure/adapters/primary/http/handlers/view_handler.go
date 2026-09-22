@@ -34,9 +34,16 @@ var inlineContentTypes = map[string]bool{
 	"application/json": true,
 	"video/mp4":        true,
 	"video/webm":       true,
+	"video/ogg":        true,
+	"video/quicktime":  true,
+	"video/x-matroska": true,
+	"video/x-msvideo":  true,
 	"audio/mpeg":       true,
 	"audio/ogg":        true,
 	"audio/wav":        true,
+	"audio/mp4":        true,
+	"audio/webm":       true,
+	"audio/x-m4a":      true,
 }
 
 func (h *ViewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
