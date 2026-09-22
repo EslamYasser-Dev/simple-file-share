@@ -16,17 +16,13 @@ func NewDirectoryHandler(createService *services.CreateDirectoryService) *Direct
 	return &DirectoryHandler{createService: createService}
 }
 
-type directoryRequest struct {
-	Path string `json:"path"`
-}
-
 func (h *DirectoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req directoryRequest
+	var req dto.CreateDirectoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return

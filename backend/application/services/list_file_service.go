@@ -17,7 +17,7 @@ func NewListFilesService(fileRepo ports.FileRepository, scoper ports.PathScoper)
 }
 
 func (s *ListFilesService) Execute(user *models.User, path string) (*models.PageData, error) {
-	fp, err := valueobjects.NewFilePath(path)
+	fp, err := valueobjects.NewFilePath(requestPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -25,6 +25,14 @@ func (s *ListFilesService) Execute(user *models.User, path string) (*models.Page
 	physical, err := s.scoper.ReadPath(user, fp.Relative())
 	if err != nil {
 		return nil, err
+	}
+
+	exists, err := s.fileRepo.FileExists(physical)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, &domainerrors.NotFoundError{Path: path}
 	}
 
 	isDir, err := s.fileRepo.IsDirectory(physical)

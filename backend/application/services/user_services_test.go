@@ -122,6 +122,42 @@ func TestSeedAdminOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestSearchAppliesDefaultLimit(t *testing.T) {
+	index := memory.NewFileIndexRepository()
+	for _, p := range []string{
+		"users/alice/a.txt",
+		"users/alice/b.txt",
+		"users/alice/c.txt",
+		"users/alice/d.txt",
+		"users/alice/e.txt",
+		"users/alice/f.txt",
+	} {
+		if err := index.Upsert(fileInfo(p, 1, false)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewSearchFilesService(index, policy.NewPathScoper())
+
+	// Explicitly requesting zero falls back to the default search limit, so
+	// every match comes back.
+	results, err := service.Execute(nil, "alice", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 6 {
+		t.Fatalf("default-limit results = %d, want 6", len(results))
+	}
+
+	// An explicit small limit is honored.
+	results, err = service.Execute(nil, "alice", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+}
+
 func TestListUsersReturnsStorageStats(t *testing.T) {
 	register, userRepo, _, _ := newUserFixture(t, true)
 	if _, err := register.Execute("alice", "secret"); err != nil {
@@ -137,7 +173,7 @@ func TestListUsersReturnsStorageStats(t *testing.T) {
 	}
 	service := NewListUsersService(userRepo, index, policy.NewPathScoper())
 
-	stats, err := service.Execute()
+	stats, err := service.Execute(&models.User{Username: "root", IsAdmin: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +182,24 @@ func TestListUsersReturnsStorageStats(t *testing.T) {
 	}
 	if stats[0].Files != 2 || stats[0].Size != 15 {
 		t.Errorf("stats = %+v, want 2 files / 15 bytes", stats[0])
+	}
+}
+
+func TestListUsersForbidsRegularUsers(t *testing.T) {
+	register, userRepo, _, _ := newUserFixture(t, true)
+	if _, err := register.Execute("alice", "secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper())
+
+	var forbidden *domainerrors.ForbiddenError
+	if _, err := service.Execute(&models.User{Username: "alice"}); !errors.As(err, &forbidden) {
+		t.Fatalf("regular user list = %v, want ForbiddenError", err)
+	}
+
+	// The system view (auth disabled → nil user) may list accounts.
+	if _, err := service.Execute(nil); err != nil {
+		t.Fatalf("system view list = %v, want nil", err)
 	}
 }

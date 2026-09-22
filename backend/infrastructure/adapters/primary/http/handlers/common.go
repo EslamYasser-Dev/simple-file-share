@@ -9,7 +9,7 @@ import (
 
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 )
 
@@ -34,6 +34,8 @@ func respondWithError(w http.ResponseWriter, err error) {
 	var forbidden *domainerrors.ForbiddenError
 	var isDir *domainerrors.IsDirectoryError
 	var notDir *domainerrors.NotDirectoryError
+	var shareNotFound *domainerrors.ShareNotFoundError
+	var shareExpired *domainerrors.ShareExpiredError
 
 	status := http.StatusInternalServerError
 	message := "internal server error"
@@ -55,6 +57,10 @@ func respondWithError(w http.ResponseWriter, err error) {
 		status, message = http.StatusBadRequest, err.Error()
 	case errors.As(err, &forbidden):
 		status, message = http.StatusForbidden, err.Error()
+	case errors.As(err, &shareExpired):
+		status, message = http.StatusGone, err.Error()
+	case errors.As(err, &shareNotFound):
+		status, message = http.StatusNotFound, err.Error()
 	}
 
 	respondJSON(w, status, dto.ErrorResponse{Error: message})
@@ -63,7 +69,7 @@ func respondWithError(w http.ResponseWriter, err error) {
 // currentUser returns the authenticated user for this request. It is nil when
 // auth is disabled, in which case handlers treat the request as a system view.
 func currentUser(r *http.Request) *models.User {
-	return xhttp.UserFromContext(r.Context())
+	return authctx.UserFromContext(r.Context())
 }
 
 func serveDownload(w http.ResponseWriter, stream io.ReadCloser, filename, contentType string) {
@@ -88,12 +94,4 @@ func serveInline(w http.ResponseWriter, stream io.ReadCloser, filename, contentT
 		// Headers already flushed; client disconnected.
 		return
 	}
-}
-
-func pathFromQuery(r *http.Request) string {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		return "/"
-	}
-	return path
 }

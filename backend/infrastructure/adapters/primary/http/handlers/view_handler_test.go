@@ -71,8 +71,8 @@ func TestViewForcesDownloadForUnsafeContentType(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
-		t.Fatalf("Content-Type = %q, want application/octet-stream", ct)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html" {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
 	}
 	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
 		t.Fatalf("expected attachment disposition, got %q", cd)

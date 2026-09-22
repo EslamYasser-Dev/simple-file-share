@@ -11,6 +11,12 @@ type User struct {
 	CreatedAt    time.Time
 }
 
+// IsSystemView reports whether the user has unrestricted (admin/system)
+// access. A nil user is the system view used when auth is disabled.
+func (u *User) IsSystemView() bool {
+	return u == nil || u.IsAdmin
+}
+
 // UserStats is a read model that combines an account with its storage usage,
 // used by the admin console.
 type UserStats struct {

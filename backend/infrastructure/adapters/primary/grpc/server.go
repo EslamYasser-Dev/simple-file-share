@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	filesharev1 "github.com/EslamYasser-Dev/simple-file-share/api/proto/fileshare/v1"
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
@@ -34,14 +35,14 @@ func NewServer(
 	logger ports.Logger,
 	tlsGenerator ports.TLSCertGenerator,
 	enableTLS bool,
-	authProvider ports.AuthProvider,
+	authService *services.AuthenticateService,
 	enableAuth bool,
-	authService *AuthService,
+	authStore *AuthService,
 	fileService *FileService,
 ) (*Server, error) {
 	opts := []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(unaryAuthInterceptor(authProvider, enableAuth)),
-		grpc.ChainStreamInterceptor(streamAuthInterceptor(authProvider, enableAuth)),
+		grpc.ChainUnaryInterceptor(unaryAuthInterceptor(authService, enableAuth)),
+		grpc.ChainStreamInterceptor(streamAuthInterceptor(authService, enableAuth)),
 	}
 
 	if enableTLS {
@@ -61,7 +62,7 @@ func NewServer(
 	}
 
 	grpcServer := grpc.NewServer(opts...)
-	filesharev1.RegisterAuthServiceServer(grpcServer, authService)
+	filesharev1.RegisterAuthServiceServer(grpcServer, authStore)
 	filesharev1.RegisterFileServiceServer(grpcServer, fileService)
 
 	healthServer := health.NewServer()

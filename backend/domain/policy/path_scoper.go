@@ -42,7 +42,7 @@ func (s *PathScoper) PrivatePrefix(username string) string {
 
 // IsSystemView reports whether the user has unrestricted (admin/system) access.
 func (s *PathScoper) IsSystemView(user *models.User) bool {
-	return user == nil || user.IsAdmin
+	return user.IsSystemView()
 }
 
 // ReadPath resolves a virtual path for reading. Any regular user can read

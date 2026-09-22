@@ -56,12 +56,13 @@ func newGRPCFixture(t *testing.T, enableAuth bool) *grpcFixture {
 		t.Fatalf("seed admin: %v", err)
 	}
 	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
+	authenticateService := services.NewAuthenticateService(authProvider)
 
 	listService := services.NewListFilesService(fileRepo, scoper)
 	fileDownloadService := services.NewDownloadFileService(fileRepo, scoper)
 	zipService := services.NewDownloadZipService(fileRepo, scoper)
 	downloadService := services.NewDownloadService(fileDownloadService, zipService)
-	uploadService := services.NewUploadService(fileRepo, scoper)
+	uploadService := services.NewUploadService(fileRepo, scoper, 0)
 	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
 	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
 	deleteService := services.NewDeletePathService(fileRepo, scoper)
@@ -70,13 +71,13 @@ func newGRPCFixture(t *testing.T, enableAuth bool) *grpcFixture {
 	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, true)
 	usersService := services.NewListUsersService(userRepo, index, scoper)
 
-	authService := NewAuthService(registerService, usersService, authProvider, true)
+	authService := NewAuthService(registerService, usersService, authenticateService, true)
 	fileService := NewFileService(
 		listService, infoService, searchService, createDirService,
 		deleteService, updateService, uploadService, downloadService,
 	)
 
-	srv, err := NewServer("0", noopLogger{}, &tls.InMemoryTLSCertGenerator{}, false, authProvider, enableAuth, authService, fileService)
+	srv, err := NewServer("0", noopLogger{}, &tls.InMemoryTLSCertGenerator{}, false, authenticateService, enableAuth, authService, fileService)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

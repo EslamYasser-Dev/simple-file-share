@@ -50,6 +50,7 @@ func main() {
 
 	scoper := policy.NewPathScoper()
 	userRepo := fs.NewUserFileRepository(rootDir)
+	shareRepo := fs.NewShareFileRepository(rootDir)
 	hasher := auth.NewPBKDF2Hasher()
 
 	seedService := services.NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
@@ -62,13 +63,14 @@ func main() {
 	}
 
 	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
+	authenticateService := services.NewAuthenticateService(authProvider)
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 
 	listService := services.NewListFilesService(fileRepo, scoper)
 	fileDownloadService := services.NewDownloadFileService(fileRepo, scoper)
 	zipService := services.NewDownloadZipService(fileRepo, scoper)
 	downloadService := services.NewDownloadService(fileDownloadService, zipService)
-	uploadService := services.NewUploadService(fileRepo, scoper)
+	uploadService := services.NewUploadService(fileRepo, scoper, cfg.GetMaxUploadBytes())
 	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
 	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
 	deleteService := services.NewDeletePathService(fileRepo, scoper)
@@ -76,6 +78,18 @@ func main() {
 	searchService := services.NewSearchFilesService(indexRepo, scoper)
 	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, cfg.EnableSignup())
 	usersService := services.NewListUsersService(userRepo, indexRepo, scoper)
+
+	// Public share links: management handlers require auth, resolution does not.
+	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper)
+	listSharesService := services.NewListSharesService(shareRepo, scoper)
+	revokeShareService := services.NewRevokeShareService(shareRepo, scoper)
+	resolveShareService := services.NewResolveShareService(shareRepo, scoper, downloadService)
+	purgeSharesService := services.NewPurgeExpiredSharesService(shareRepo)
+	if purged, err := purgeSharesService.Execute(); err != nil {
+		logger.Warn("Share cleanup failed", "error", err)
+	} else if purged > 0 {
+		logger.Info("Purged expired share links", "count", purged)
+	}
 
 	listHandler := handlers.NewListHandler(listService)
 	deleteHandler := handlers.NewDeleteHandler(deleteService)
@@ -94,6 +108,8 @@ func main() {
 		Me:         handlers.NewMeHandler(),
 		AuthInfo:   handlers.NewAuthInfoHandler(cfg.EnableSignup()),
 		AdminUsers: handlers.NewAdminUsersHandler(usersService),
+		Shares:     handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService),
+		Share:      handlers.NewShareDownloadHandler(resolveShareService),
 		Health:     handlers.NewHealthHandler(),
 	}
 
@@ -102,14 +118,13 @@ func main() {
 		tlsGenerator,
 		logger,
 		routeHandlers,
-		authProvider,
+		authenticateService,
 		cfg.EnableAuth(),
-		cfg.GetMaxUploadBytes(),
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
 
 	if cfg.EnableGRPC() {
-		authService := grpcapi.NewAuthService(registerService, usersService, authProvider, cfg.EnableSignup())
+		authService := grpcapi.NewAuthService(registerService, usersService, authenticateService, cfg.EnableSignup())
 		fileService := grpcapi.NewFileService(
 			listService,
 			infoService,
@@ -125,7 +140,7 @@ func main() {
 			logger,
 			tlsGenerator,
 			cfg.EnableTLS(),
-			authProvider,
+			authenticateService,
 			cfg.EnableAuth(),
 			authService,
 			fileService,

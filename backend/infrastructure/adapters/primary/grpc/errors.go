@@ -20,6 +20,8 @@ func toStatus(err error) error {
 	var forbidden *domainerrors.ForbiddenError
 	var isDir *domainerrors.IsDirectoryError
 	var notDir *domainerrors.NotDirectoryError
+	var shareNotFound *domainerrors.ShareNotFoundError
+	var shareExpired *domainerrors.ShareExpiredError
 
 	switch {
 	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
@@ -38,6 +40,10 @@ func toStatus(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.As(err, &forbidden):
 		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.As(err, &shareExpired):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.As(err, &shareNotFound):
+		return status.Error(codes.NotFound, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}

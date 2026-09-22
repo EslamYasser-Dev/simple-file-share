@@ -3,13 +3,9 @@ package grpcapi
 import (
 	"context"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	filesharev1 "github.com/EslamYasser-Dev/simple-file-share/api/proto/fileshare/v1"
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
@@ -19,20 +15,20 @@ type AuthService struct {
 
 	register      *services.RegisterUserService
 	users         *services.ListUsersService
-	authProvider  ports.AuthProvider
+	authenticate  *services.AuthenticateService
 	signupEnabled bool
 }
 
 func NewAuthService(
 	register *services.RegisterUserService,
 	users *services.ListUsersService,
-	authProvider ports.AuthProvider,
+	authenticate *services.AuthenticateService,
 	signupEnabled bool,
 ) *AuthService {
 	return &AuthService{
 		register:      register,
 		users:         users,
-		authProvider:  authProvider,
+		authenticate:  authenticate,
 		signupEnabled: signupEnabled,
 	}
 }
@@ -46,7 +42,7 @@ func (s *AuthService) Register(_ context.Context, req *filesharev1.RegisterReque
 }
 
 func (s *AuthService) Authenticate(_ context.Context, req *filesharev1.AuthenticateRequest) (*filesharev1.User, error) {
-	user, err := s.authProvider.Authenticate(req.GetUsername(), req.GetPassword())
+	user, err := s.authenticate.Execute(req.GetUsername(), req.GetPassword())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -67,12 +63,7 @@ func (s *AuthService) GetAuthInfo(_ context.Context, _ *filesharev1.GetAuthInfoR
 }
 
 func (s *AuthService) ListUsers(ctx context.Context, _ *filesharev1.ListUsersRequest) (*filesharev1.ListUsersResponse, error) {
-	user := authctx.UserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, status.Error(codes.PermissionDenied, "admin access required")
-	}
-
-	stats, err := s.users.Execute()
+	stats, err := s.users.Execute(authctx.UserFromContext(ctx))
 	if err != nil {
 		return nil, toStatus(err)
 	}

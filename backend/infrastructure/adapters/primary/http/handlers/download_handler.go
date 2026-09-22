@@ -20,7 +20,7 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	download, err := h.service.Execute(currentUser(r), pathFromQuery(r))
+	download, err := h.service.Execute(currentUser(r), r.URL.Query().Get("path"))
 	if err != nil {
 		respondWithError(w, err)
 		return

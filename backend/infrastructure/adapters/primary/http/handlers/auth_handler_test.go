@@ -10,7 +10,7 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
-	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/fs"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/memory"
@@ -83,7 +83,7 @@ func TestMeHandlerWithoutUserIsSystemAdmin(t *testing.T) {
 
 func TestMeHandlerWithUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req = req.WithContext(xhttp.ContextWithUser(req.Context(), &models.User{Username: "bob"}))
+	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob"}))
 	rec := httptest.NewRecorder()
 	NewMeHandler().ServeHTTP(rec, req)
 
@@ -102,7 +102,7 @@ func TestAdminUsersHandlerRequiresAdmin(t *testing.T) {
 	handler := NewAdminUsersHandler(services.NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper()))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	req = req.WithContext(xhttp.ContextWithUser(req.Context(), &models.User{Username: "bob"}))
+	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob"}))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

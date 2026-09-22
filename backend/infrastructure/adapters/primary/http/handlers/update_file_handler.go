@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
@@ -19,25 +18,15 @@ func NewUpdateFileHandler(updateService *services.UpdateFileContentService) *Upd
 	return &UpdateFileHandler{updateService: updateService}
 }
 
-type updateFileRequest struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
 func (h *UpdateFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req updateFileRequest
+	var req dto.UpdateContentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	req.Path = strings.TrimSpace(req.Path)
-	if req.Path == "" {
-		respondError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 

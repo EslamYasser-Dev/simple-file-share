@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
-	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
@@ -29,12 +29,12 @@ var publicMethods = map[string]bool{
 
 const basicPrefix = "Basic "
 
-func unaryAuthInterceptor(provider ports.AuthProvider, enabled bool) grpc.UnaryServerInterceptor {
+func unaryAuthInterceptor(auth *services.AuthenticateService, enabled bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if !enabled || provider == nil || publicMethods[info.FullMethod] {
+		if !enabled || auth == nil || publicMethods[info.FullMethod] {
 			return handler(ctx, req)
 		}
-		user, err := authenticate(ctx, provider)
+		user, err := authenticate(ctx, auth)
 		if err != nil {
 			return nil, err
 		}
@@ -42,12 +42,12 @@ func unaryAuthInterceptor(provider ports.AuthProvider, enabled bool) grpc.UnaryS
 	}
 }
 
-func streamAuthInterceptor(provider ports.AuthProvider, enabled bool) grpc.StreamServerInterceptor {
+func streamAuthInterceptor(auth *services.AuthenticateService, enabled bool) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if !enabled || provider == nil || publicMethods[info.FullMethod] {
+		if !enabled || auth == nil || publicMethods[info.FullMethod] {
 			return handler(srv, ss)
 		}
-		user, err := authenticate(ss.Context(), provider)
+		user, err := authenticate(ss.Context(), auth)
 		if err != nil {
 			return err
 		}
@@ -56,8 +56,8 @@ func streamAuthInterceptor(provider ports.AuthProvider, enabled bool) grpc.Strea
 }
 
 // authenticate reads HTTP Basic credentials from incoming metadata and resolves
-// them to an account via the AuthProvider port.
-func authenticate(ctx context.Context, provider ports.AuthProvider) (*models.User, error) {
+// them to an account via the AuthenticateService use case.
+func authenticate(ctx context.Context, auth *services.AuthenticateService) (*models.User, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing credentials")
@@ -70,7 +70,7 @@ func authenticate(ctx context.Context, provider ports.AuthProvider) (*models.Use
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "invalid authorization format")
 	}
-	user, err := provider.Authenticate(username, password)
+	user, err := auth.Execute(username, password)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 	}

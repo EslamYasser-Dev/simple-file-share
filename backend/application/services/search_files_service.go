@@ -14,6 +14,10 @@ type SearchFilesService struct {
 	scoper ports.PathScoper
 }
 
+// DefaultSearchLimit is applied by the use case when a client does not ask
+// for a specific result count, so every adapter speaks the same contract.
+const DefaultSearchLimit = 50
+
 func NewSearchFilesService(index ports.FileIndexRepository, scoper ports.PathScoper) *SearchFilesService {
 	return &SearchFilesService{index: index, scoper: scoper}
 }
@@ -22,6 +26,9 @@ func (s *SearchFilesService) Execute(user *models.User, query string, limit int)
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, errors.NewValidationError("query", query, "query cannot be empty")
+	}
+	if limit <= 0 {
+		limit = DefaultSearchLimit
 	}
 
 	// Sysadmins see everything; regular users are confined to their private

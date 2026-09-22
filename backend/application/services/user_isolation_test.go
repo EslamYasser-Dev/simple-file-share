@@ -31,16 +31,6 @@ type isolationFixture struct {
 	update   *UpdateFileContentService
 }
 
-type isolationUploadPart struct {
-	name string
-	body string
-}
-
-func (p isolationUploadPart) Filename() string { return p.name }
-func (p isolationUploadPart) Content() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(p.body))
-}
-
 func newIsolationFixture(t *testing.T) *isolationFixture {
 	t.Helper()
 
@@ -72,7 +62,7 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 		list:     NewListFilesService(repo, scoper),
 		download: NewDownloadFileService(repo, scoper),
 		search:   NewSearchFilesService(index, scoper),
-		upload:   NewUploadService(repo, scoper),
+		upload:   NewUploadService(repo, scoper, 0),
 		mkdir:    NewCreateDirectoryService(repo, scoper),
 		remove:   NewDeletePathService(repo, scoper),
 		update:   NewUpdateFileContentService(repo, scoper),
@@ -162,9 +152,10 @@ func TestUsersCannotWriteOutsideTheirNamespace(t *testing.T) {
 
 	operations := map[string]func() error{
 		"upload": func() error {
-			_, err := fixture.upload.Execute(alice, []models.UploadPart{
-				isolationUploadPart{name: "users/bob/evil.txt", body: "evil"},
-			})
+			_, err := fixture.upload.Execute(alice, []models.UploadPart{{
+				Name:    "users/bob/evil.txt",
+				Content: io.NopCloser(strings.NewReader("evil")),
+			}})
 			return err
 		},
 		"mkdir": func() error {
@@ -178,9 +169,10 @@ func TestUsersCannotWriteOutsideTheirNamespace(t *testing.T) {
 			return fixture.remove.Execute(alice, "users/bob/bob-report.txt")
 		},
 		"shared upload": func() error {
-			_, err := fixture.upload.Execute(alice, []models.UploadPart{
-				isolationUploadPart{name: "shared/evil.txt", body: "evil"},
-			})
+			_, err := fixture.upload.Execute(alice, []models.UploadPart{{
+				Name:    "shared/evil.txt",
+				Content: io.NopCloser(strings.NewReader("evil")),
+			}})
 			return err
 		},
 	}
@@ -204,5 +196,55 @@ func TestAdminKeepsFullVisibility(t *testing.T) {
 	}
 	if len(other.Files) != 1 || other.Files[0].Path != "users/bob/bob-report.txt" {
 		t.Fatalf("admin bob tree = %+v, want physical users/bob/bob-report.txt", other.Files)
+	}
+}
+
+func TestUploadRespectsSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+	scoper := policy.NewPathScoper()
+	repo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository())
+	service := NewUploadService(repo, scoper, 5)
+
+	// Exactly on the limit is allowed.
+	uploads, err := service.Execute(nil, []models.UploadPart{{
+		Name:    "exact.txt",
+		Content: io.NopCloser(strings.NewReader("12345")),
+	}})
+	if err != nil {
+		t.Fatalf("exact-limit upload = %v", err)
+	}
+	if len(uploads) != 1 || uploads[0].Size != 5 {
+		t.Fatalf("uploads = %+v, want 1 file of 5 bytes", uploads)
+	}
+
+	// Past the limit is rejected with a validation error.
+	var validation *domainerrors.ValidationError
+	if _, err = service.Execute(nil, []models.UploadPart{{
+		Name:    "over.txt",
+		Content: io.NopCloser(strings.NewReader("123456")),
+	}}); !errors.As(err, &validation) {
+		t.Fatalf("over-limit upload = %v, want ValidationError", err)
+	}
+}
+
+func TestUploadRejectsEmptyPayloadAndWritesToDestination(t *testing.T) {
+	fixture := newIsolationFixture(t)
+
+	var validation *domainerrors.ValidationError
+	if _, err := fixture.upload.Execute(nil, nil); !errors.As(err, &validation) {
+		t.Fatalf("no-part upload = %v, want ValidationError", err)
+	}
+
+	// The destination prefix joins with the filename.
+	uploads, err := fixture.upload.Execute(nil, []models.UploadPart{{
+		Name:        "a.txt",
+		Destination: "docs",
+		Content:     io.NopCloser(strings.NewReader("hi")),
+	}})
+	if err != nil {
+		t.Fatalf("upload = %v", err)
+	}
+	if len(uploads) != 1 || uploads[0].Filename != "docs/a.txt" {
+		t.Fatalf("uploads = %+v, want docs/a.txt", uploads)
 	}
 }

@@ -1,29 +1,16 @@
 package xhttp
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
-// ContextWithUser returns a copy of ctx carrying the authenticated user.
-func ContextWithUser(ctx context.Context, user *models.User) context.Context {
-	return authctx.WithUser(ctx, user)
-}
-
-// UserFromContext returns the authenticated user, or nil when requests are
-// served without auth (auth disabled, or a middleware that does not attach a
-// user). A nil user is treated as a system/admin view by the scoping layer.
-func UserFromContext(ctx context.Context) *models.User {
-	return authctx.UserFromContext(ctx)
-}
-
-// AuthMiddleware enforces Basic Auth via the AuthProvider port and stores the
-// authenticated account in the request context.
-func AuthMiddleware(authProvider ports.AuthProvider) func(http.Handler) http.Handler {
+// AuthMiddleware enforces Basic Auth through the AuthenticateService use case
+// and stores the authenticated account in the request context.
+func AuthMiddleware(auth *services.AuthenticateService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			username, password, ok := r.BasicAuth()
@@ -32,13 +19,13 @@ func AuthMiddleware(authProvider ports.AuthProvider) func(http.Handler) http.Han
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			user, err := authProvider.Authenticate(username, password)
+			user, err := auth.Execute(username, password)
 			if err != nil {
 				w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(ContextWithUser(r.Context(), user)))
+			next.ServeHTTP(w, r.WithContext(authctx.WithUser(r.Context(), user)))
 		})
 	}
 }
@@ -71,18 +58,4 @@ func chainMiddleware(h http.Handler, middlewares ...func(http.Handler) http.Hand
 		h = middlewares[i](h)
 	}
 	return h
-}
-
-// MaxBytesMiddleware limits request body size (used for uploads). A value <= 0
-// disables the limit so uploads are bounded only by disk space.
-func MaxBytesMiddleware(maxBytes int64) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		if maxBytes <= 0 {
-			return next
-		}
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-			next.ServeHTTP(w, r)
-		})
-	}
 }

@@ -1,12 +1,14 @@
 package services
 
 import (
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 // ListUsersService returns every account plus per-user storage usage for the
-// admin console.
+// admin console. Only the system view (admin, or auth-disabled nil user) may
+// list accounts; the check lives here so both primary adapters enforce it.
 type ListUsersService struct {
 	users  ports.UserRepository
 	index  ports.FileIndexRepository
@@ -17,7 +19,11 @@ func NewListUsersService(users ports.UserRepository, index ports.FileIndexReposi
 	return &ListUsersService{users: users, index: index, scoper: scoper}
 }
 
-func (s *ListUsersService) Execute() ([]models.UserStats, error) {
+func (s *ListUsersService) Execute(user *models.User) ([]models.UserStats, error) {
+	if !user.IsSystemView() {
+		return nil, &domainerrors.ForbiddenError{Action: "list users"}
+	}
+
 	list, err := s.users.ListUsers()
 	if err != nil {
 		return nil, err

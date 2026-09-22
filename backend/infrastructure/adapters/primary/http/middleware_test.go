@@ -6,7 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
 type fakeAuthProvider struct {
@@ -21,16 +24,22 @@ func (f fakeAuthProvider) Authenticate(_, _ string) (*models.User, error) {
 	return f.user, nil
 }
 
+var _ ports.AuthProvider = fakeAuthProvider{}
+
+func testAuthMiddleware(provider ports.AuthProvider) func(http.Handler) http.Handler {
+	return AuthMiddleware(services.NewAuthenticateService(provider))
+}
+
 func TestAuthMiddlewareAttachesUser(t *testing.T) {
 	alice := &models.User{Username: "alice", IsAdmin: true}
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := UserFromContext(r.Context())
+		got := authctx.UserFromContext(r.Context())
 		if got == nil || got.Username != "alice" {
 			t.Errorf("context user = %+v, want alice", got)
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := AuthMiddleware(fakeAuthProvider{user: alice})(next)
+	handler := testAuthMiddleware(fakeAuthProvider{user: alice})(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.SetBasicAuth("alice", "secret")
@@ -43,7 +52,7 @@ func TestAuthMiddlewareAttachesUser(t *testing.T) {
 }
 
 func TestAuthMiddlewareRejectsMissingCredentials(t *testing.T) {
-	handler := AuthMiddleware(fakeAuthProvider{})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := testAuthMiddleware(fakeAuthProvider{})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("next handler should not be called")
 	}))
 
@@ -56,7 +65,7 @@ func TestAuthMiddlewareRejectsMissingCredentials(t *testing.T) {
 }
 
 func TestAuthMiddlewareRejectsBadCredentials(t *testing.T) {
-	handler := AuthMiddleware(fakeAuthProvider{err: errors.New("nope")})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := testAuthMiddleware(fakeAuthProvider{err: errors.New("nope")})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("next handler should not be called")
 	}))
 
@@ -70,8 +79,8 @@ func TestAuthMiddlewareRejectsBadCredentials(t *testing.T) {
 	}
 }
 
-func TestUserFromContextDefaultsNil(t *testing.T) {
-	if u := UserFromContext(httptest.NewRequest(http.MethodGet, "/", nil).Context()); u != nil {
+func TestAuthctxUserFromContextDefaultsNil(t *testing.T) {
+	if u := authctx.UserFromContext(httptest.NewRequest(http.MethodGet, "/", nil).Context()); u != nil {
 		t.Errorf("user = %+v, want nil", u)
 	}
 }

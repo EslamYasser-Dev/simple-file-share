@@ -16,17 +16,13 @@ func NewDeleteHandler(deleteService *services.DeletePathService) *DeleteHandler 
 	return &DeleteHandler{deleteService: deleteService}
 }
 
-type deleteRequest struct {
-	Path string `json:"path"`
-}
-
 func (h *DeleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req deleteRequest
+	var req dto.DeleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return

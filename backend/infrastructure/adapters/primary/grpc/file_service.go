@@ -3,8 +3,6 @@ package grpcapi
 import (
 	"context"
 	"io"
-	"path"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -53,7 +51,7 @@ func NewFileService(
 }
 
 func (s *FileService) ListFiles(ctx context.Context, req *filesharev1.ListFilesRequest) (*filesharev1.ListFilesResponse, error) {
-	page, err := s.list.Execute(authctx.UserFromContext(ctx), orRoot(req.GetPath()))
+	page, err := s.list.Execute(authctx.UserFromContext(ctx), req.GetPath())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -61,7 +59,7 @@ func (s *FileService) ListFiles(ctx context.Context, req *filesharev1.ListFilesR
 }
 
 func (s *FileService) GetFileInfo(ctx context.Context, req *filesharev1.GetFileInfoRequest) (*filesharev1.FileInfo, error) {
-	info, err := s.info.Execute(authctx.UserFromContext(ctx), orRoot(req.GetPath()))
+	info, err := s.info.Execute(authctx.UserFromContext(ctx), req.GetPath())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -69,11 +67,7 @@ func (s *FileService) GetFileInfo(ctx context.Context, req *filesharev1.GetFileI
 }
 
 func (s *FileService) SearchFiles(ctx context.Context, req *filesharev1.SearchFilesRequest) (*filesharev1.SearchFilesResponse, error) {
-	limit := int(req.GetLimit())
-	if limit <= 0 {
-		limit = 50
-	}
-	files, err := s.search.Execute(authctx.UserFromContext(ctx), req.GetQuery(), limit)
+	files, err := s.search.Execute(authctx.UserFromContext(ctx), req.GetQuery(), int(req.GetLimit()))
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -117,25 +111,17 @@ func (s *FileService) UploadFile(stream filesharev1.FileService_UploadFileServer
 		return status.Error(codes.InvalidArgument, "first upload message must carry metadata")
 	}
 
-	filename := meta.GetFilename()
-	if filename == "" {
-		return status.Error(codes.InvalidArgument, "filename is required")
-	}
-	if dir := strings.TrimPrefix(meta.GetPath(), "/"); dir != "" {
-		filename = path.Join(dir, filename)
-	}
-
 	pr, pw := io.Pipe()
 	go pumpUpload(stream, pw)
 
-	part := &grpcUploadPart{name: filename, rc: pr}
-	uploads, execErr := s.upload.Execute(authctx.UserFromContext(stream.Context()), []models.UploadPart{part})
+	uploads, execErr := s.upload.Execute(authctx.UserFromContext(stream.Context()), []models.UploadPart{{
+		Name:        meta.GetFilename(),
+		Destination: meta.GetPath(),
+		Content:     pr,
+	}})
 	_ = pr.Close()
 	if execErr != nil {
 		return toStatus(execErr)
-	}
-	if len(uploads) == 0 {
-		return status.Error(codes.Internal, "upload produced no result")
 	}
 
 	uploaded := uploads[0]
@@ -169,7 +155,7 @@ func pumpUpload(stream filesharev1.FileService_UploadFileServer, pw *io.PipeWrit
 // DownloadFile streams a file (or zipped directory) in chunks. The first chunk
 // carries the resolved filename and content type.
 func (s *FileService) DownloadFile(req *filesharev1.DownloadFileRequest, stream filesharev1.FileService_DownloadFileServer) error {
-	download, err := s.download.Execute(authctx.UserFromContext(stream.Context()), orRoot(req.GetPath()))
+	download, err := s.download.Execute(authctx.UserFromContext(stream.Context()), req.GetPath())
 	if err != nil {
 		return toStatus(err)
 	}
@@ -197,22 +183,6 @@ func (s *FileService) DownloadFile(req *filesharev1.DownloadFileRequest, stream 
 			return status.Error(codes.Internal, "stream read failed")
 		}
 	}
-}
-
-type grpcUploadPart struct {
-	name string
-	rc   io.ReadCloser
-}
-
-func (p *grpcUploadPart) Filename() string       { return p.name }
-func (p *grpcUploadPart) Content() io.ReadCloser { return p.rc }
-
-// orRoot mirrors the HTTP adapter, which treats an omitted path as the root.
-func orRoot(p string) string {
-	if p == "" {
-		return "/"
-	}
-	return p
 }
 
 func toProtoFileInfo(f *models.FileInfo) *filesharev1.FileInfo {

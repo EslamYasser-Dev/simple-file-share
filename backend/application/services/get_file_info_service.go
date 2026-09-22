@@ -20,7 +20,7 @@ func NewGetFileInfoService(fileRepo ports.FileRepository, scoper ports.PathScope
 }
 
 func (s *GetFileInfoService) Execute(user *models.User, path string) (*models.FileInfo, error) {
-	fp, err := valueobjects.NewFilePath(path)
+	fp, err := valueobjects.NewFilePath(requestPath(path))
 	if err != nil {
 		return nil, err
 	}

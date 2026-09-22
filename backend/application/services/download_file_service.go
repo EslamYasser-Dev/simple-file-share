@@ -3,6 +3,7 @@ package services
 import (
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
@@ -10,6 +11,7 @@ import (
 type DownloadFileService struct {
 	fileRepo ports.FileRepository
 	scoper   ports.PathScoper
+	policy   policy.ContentDispositionPolicy
 }
 
 func NewDownloadFileService(fileRepo ports.FileRepository, scoper ports.PathScoper) *DownloadFileService {
@@ -17,7 +19,7 @@ func NewDownloadFileService(fileRepo ports.FileRepository, scoper ports.PathScop
 }
 
 func (s *DownloadFileService) Execute(user *models.User, path string) (*models.Download, error) {
-	fp, err := valueobjects.NewFilePath(path)
+	fp, err := valueobjects.NewFilePath(requestPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -47,9 +49,11 @@ func (s *DownloadFileService) Execute(user *models.User, path string) (*models.D
 	if err != nil {
 		return nil, err
 	}
+	contentType := s.policy.ContentTypeFor(filename)
 	return &models.Download{
 		Stream:      stream,
 		Filename:    filename,
-		ContentType: "application/octet-stream",
+		ContentType: contentType,
+		Inline:      s.policy.IsInlineContentType(contentType),
 	}, nil
 }

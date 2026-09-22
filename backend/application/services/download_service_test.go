@@ -27,7 +27,8 @@ func writeRepoFile(t *testing.T, repo *fs.LocalFileRepository, path, content str
 }
 
 // A real file whose name ends in ".zip" must download as a file, not be
-// mistaken for a directory-zip request.
+// mistaken for a directory-zip request. It gets its real media type but is
+// never inline (zip is not renderable in-browser).
 func TestDownloadServiceServesZipNamedFileAsFile(t *testing.T) {
 	svc, repo := newDownloadFixture(t)
 	writeRepoFile(t, repo, "archive.zip", "PK-not-really")
@@ -38,8 +39,11 @@ func TestDownloadServiceServesZipNamedFileAsFile(t *testing.T) {
 	}
 	defer download.Stream.Close()
 
-	if download.ContentType != "application/octet-stream" {
-		t.Errorf("content type = %q, want application/octet-stream", download.ContentType)
+	if download.ContentType != "application/zip" {
+		t.Errorf("content type = %q, want application/zip", download.ContentType)
+	}
+	if download.Inline {
+		t.Error("zip download must not be inline")
 	}
 	if download.Filename != "archive.zip" {
 		t.Errorf("filename = %q, want archive.zip", download.Filename)

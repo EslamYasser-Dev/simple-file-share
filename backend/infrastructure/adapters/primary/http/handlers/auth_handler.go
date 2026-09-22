@@ -17,18 +17,13 @@ func NewRegisterHandler(registerService *services.RegisterUserService) *Register
 	return &RegisterHandler{registerService: registerService}
 }
 
-type registerRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
 func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req registerRequest
+	var req dto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -82,7 +77,8 @@ func (h *AuthInfoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, dto.AuthInfoResponse{SignupEnabled: h.signupEnabled})
 }
 
-// AdminUsersHandler lists accounts with storage usage (admin only).
+// AdminUsersHandler lists accounts with storage usage. The authorization gate
+// (system view only) lives in ListUsersService.
 type AdminUsersHandler struct {
 	usersService *services.ListUsersService
 }
@@ -97,13 +93,7 @@ func (h *AdminUsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := currentUser(r)
-	if user == nil || !user.IsAdmin {
-		respondError(w, http.StatusForbidden, "admin access required")
-		return
-	}
-
-	stats, err := h.usersService.Execute()
+	stats, err := h.usersService.Execute(currentUser(r))
 	if err != nil {
 		respondWithError(w, err)
 		return

@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"errors"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
@@ -26,15 +24,13 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An optional path chooses the virtual destination directory. It can also
+	// be carried as a "path" multipart form field, which wins for parity with
+	// the web form the frontend submits.
 	destPrefix := strings.TrimPrefix(r.URL.Query().Get("path"), "/")
 
 	reader, err := r.MultipartReader()
 	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			respondError(w, http.StatusRequestEntityTooLarge, "upload exceeds size limit")
-			return
-		}
 		respondError(w, http.StatusBadRequest, "invalid multipart request")
 		return
 	}
@@ -64,19 +60,16 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		filename := part.FileName()
-		if destPrefix != "" {
-			filename = filepath.ToSlash(filepath.Join(destPrefix, filename))
-		}
-
 		// mime/multipart shares one buffered reader across parts, so the next
 		// part can only be parsed once this one has been fully consumed. The
 		// upload therefore happens inline: it drains the part and releases the
 		// descriptor before NextPart() advances the stream. Reading a part
 		// lazily and then calling NextPart() again silently discards its data.
-		written, execErr := h.uploadService.Execute(currentUser(r), []models.UploadPart{
-			&uploadPartWithName{name: filename, rc: part},
-		})
+		written, execErr := h.uploadService.Execute(currentUser(r), []models.UploadPart{{
+			Name:        part.FileName(),
+			Destination: destPrefix,
+			Content:     part,
+		}})
 		if execErr != nil {
 			execErrors = append(execErrors, execErr)
 			continue
@@ -88,7 +81,6 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, execErrors[0])
 		return
 	}
-
 	if len(uploads) == 0 {
 		respondError(w, http.StatusBadRequest, "no files uploaded")
 		return
@@ -100,11 +92,3 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, results)
 }
-
-type uploadPartWithName struct {
-	name string
-	rc   io.ReadCloser
-}
-
-func (u *uploadPartWithName) Filename() string       { return u.name }
-func (u *uploadPartWithName) Content() io.ReadCloser { return u.rc }

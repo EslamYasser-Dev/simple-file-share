@@ -21,7 +21,7 @@ func (h *FileInfoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := h.infoService.Execute(currentUser(r), pathFromQuery(r))
+	info, err := h.infoService.Execute(currentUser(r), r.URL.Query().Get("path"))
 	if err != nil {
 		respondWithError(w, err)
 		return
