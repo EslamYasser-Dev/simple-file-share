@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
-import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { buildUrl, authHeader, clearCredentials } from '../services/api';
 import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { FilePreview } from '../components/FilePreview';
 import { Modal } from '../components/Modal';
+import { ShareModal } from '../components/ShareModal';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n';
 import { useFileStore } from '../store/fileStore';
@@ -34,6 +35,7 @@ export function Home() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [dragOver, setDragOver] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
+  const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const closePreview = useCallback(() => setPreviewItem(null), []);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [, startTransition] = useTransition();
@@ -336,6 +338,13 @@ export function Home() {
                   >
                     <Download className="h-4 w-4" />
                   </button>
+                  <button
+                    onClick={() => setShareItem(item)}
+                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-cyan-300"
+                    title={t('home.share')}
+                  >
+                    <Link2 className="h-4 w-4" />
+                  </button>
                   {!readOnly && (
                     <button
                       onClick={() => setDeleteTarget(item)}
@@ -368,6 +377,8 @@ export function Home() {
         onClose={closePreview}
         onSaved={() => fetchFiles(currentPath)}
       />
+
+      <ShareModal item={shareItem} onClose={() => setShareItem(null)} />
 
       <Modal
         open={deleteTarget !== null}

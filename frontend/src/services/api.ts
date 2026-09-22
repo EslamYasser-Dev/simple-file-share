@@ -54,6 +54,16 @@ export interface AdminUser extends AuthUser {
   size: number;
 }
 
+/** A public share link, as returned by the shares API. */
+export interface ShareItem {
+  token: string;
+  path: string;
+  name: string;
+  owner: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
@@ -275,6 +285,34 @@ export const api = {
 
   adminUsers: async (): Promise<ApiResponse<AdminUser[]>> =>
     request<AdminUser[]>(buildUrl('/api/admin/users'), { headers: authHeader() }),
+
+  // Public links
+  //
+  // Shared links are plain GET URLs anyone (even unauthenticated) can open, so
+  // `shareUrl` is the public-shaped URL, unlike authenticated blob fetches.
+
+  /** Create a share link. `expiresInSeconds` of 0 means no expiry. */
+  createShare: async (path: string, expiresInSeconds: number): Promise<ApiResponse<ShareItem>> =>
+    request<ShareItem>(buildUrl('/api/shares'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ path, expiresInSeconds }),
+    }),
+
+  /** List every share link visible to the current user. */
+  listShares: async (): Promise<ApiResponse<ShareItem[]>> =>
+    request<ShareItem[]>(buildUrl('/api/shares'), { headers: authHeader() }),
+
+  /** Revoke a share link by token. */
+  revokeShare: async (token: string): Promise<ApiResponse> =>
+    request(buildUrl('/api/shares'), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ token }),
+    }),
+
+  /** Build the public URL for a share token. */
+  shareUrl: (token: string): string => buildUrl(`/api/share/${token}`),
 };
 
 /** Fetch a raw binary response with auth, throwing descriptive errors. */
