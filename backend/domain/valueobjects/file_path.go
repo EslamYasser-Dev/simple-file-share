@@ -54,18 +54,3 @@ func (p FilePath) String() string {
 func (p FilePath) Relative() string {
 	return strings.TrimPrefix(p.value, "/")
 }
-
-// Join appends a child segment to this path.
-func (p FilePath) Join(name string) (FilePath, error) {
-	if name == "" {
-		return FilePath{}, errors.NewValidationError("path", name, "name cannot be empty")
-	}
-	base := strings.TrimPrefix(p.value, "/")
-	combined := base
-	if combined == "" {
-		combined = name
-	} else {
-		combined = combined + "/" + name
-	}
-	return NewFilePath(combined)
-}

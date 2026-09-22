@@ -1,11 +1,12 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useToastStore } from '../store/toastStore';
+import type { ToastType } from '../store/toastStore';
 
 export interface ToastApi {
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
-  showToast: (type: 'success' | 'error' | 'info', message: string) => void;
+  showToast: (type: ToastType, message: string) => void;
 }
 
 /** Returns stable references to the global toast actions (backed by Zustand). */

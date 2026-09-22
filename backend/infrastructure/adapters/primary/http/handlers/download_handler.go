@@ -2,21 +2,16 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 )
 
 type DownloadHandler struct {
-	fileService *services.DownloadFileService
-	zipService  *services.DownloadZipService
+	service *services.DownloadService
 }
 
-func NewDownloadHandler(fileService *services.DownloadFileService, zipService *services.DownloadZipService) *DownloadHandler {
-	return &DownloadHandler{
-		fileService: fileService,
-		zipService:  zipService,
-	}
+func NewDownloadHandler(service *services.DownloadService) *DownloadHandler {
+	return &DownloadHandler{service: service}
 }
 
 func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -25,30 +20,10 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := pathFromQuery(r)
-	if strings.HasSuffix(path, ".zip") {
-		path = strings.TrimSuffix(path, ".zip")
-		stream, filename, err := h.zipService.Execute(path)
-		if err != nil {
-			respondWithError(w, err)
-			return
-		}
-		if stream == nil {
-			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "not a directory"})
-			return
-		}
-		serveDownload(w, stream, filename, "application/zip")
-		return
-	}
-
-	stream, filename, err := h.fileService.Execute(path)
+	download, err := h.service.Execute(currentUser(r), r.URL.Query().Get("path"))
 	if err != nil {
 		respondWithError(w, err)
 		return
 	}
-	if stream == nil {
-		respondJSON(w, http.StatusConflict, map[string]string{"error": "path is a directory"})
-		return
-	}
-	serveDownload(w, stream, filename, "application/octet-stream")
+	serveDownload(w, download.Stream, download.Filename, download.ContentType)
 }

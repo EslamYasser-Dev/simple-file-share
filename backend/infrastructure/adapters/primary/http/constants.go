@@ -3,9 +3,11 @@ package xhttp
 import "time"
 
 const (
-	// Server timeouts
-	DefaultReadTimeout     = 30 * time.Second
-	DefaultWriteTimeout    = 60 * time.Second // allow large downloads/uploads to finish
+	// Server timeouts. Both Read and Write timeouts are disabled because
+	// uploads may be very large (unlimited by default) and legitimately take
+	// hours; only header reads remain bounded to prevent slowloris attacks.
+	DefaultReadTimeout     = 0
+	DefaultWriteTimeout    = 0
 	DefaultIdleTimeout     = 120 * time.Second
 	DefaultShutdownTimeout = 30 * time.Second
 

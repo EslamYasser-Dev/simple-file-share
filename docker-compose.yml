@@ -6,15 +6,22 @@ services:
     container_name: go-file-server
     ports:
       - "22010:22010"
+      - "50051:50051"
     volumes:
-      - ./data:/data
+      # Named volume: Docker initializes it with the image's /data ownership
+      # (nobody), which the server requires to lock the storage root to 0700.
+      # To use a host bind mount instead, create the directory and chown it to
+      # uid/gid 65534 (nobody) first: `mkdir -p data && sudo chown 65534:65534 data`.
+      - file-data:/data
     environment:
       APP_ENV: production
       PORT: "22010"
       ROOT_DIR: /data
-      USERNAME: admin
-      PASSWORD: changeme
-      JWT_SECRET: change-me-in-production
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: changeme
+      ENABLE_SIGNUP: "true"
+      ENABLE_GRPC: "true"
+      GRPC_PORT: "50051"
       ENABLE_TLS: "false"
       ENABLE_AUTH: "true"
       MAX_UPLOAD_BYTES: "104857600"
@@ -25,3 +32,6 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+
+volumes:
+  file-data:

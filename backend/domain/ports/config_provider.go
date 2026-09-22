@@ -6,8 +6,16 @@ type ConfigProvider interface {
 	GetUsername() string
 	GetPassword() string
 	GetRootDir() string
-	GetJWTSecret() string
 	GetMaxUploadBytes() int64
+	// GetGRPCPort is the TCP port the gRPC server listens on.
+	GetGRPCPort() string
+	// EnableGRPC toggles the gRPC primary adapter.
+	EnableGRPC() bool
 	EnableTLS() bool
 	EnableAuth() bool
+	// EnableSignup toggles public self-registration via POST /api/auth/register.
+	EnableSignup() bool
+	// GetDefaultQuotaBytes is the storage quota given to newly registered
+	// accounts. 0 means unlimited.
+	GetDefaultQuotaBytes() int64
 }

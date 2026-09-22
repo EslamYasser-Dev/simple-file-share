@@ -1,42 +1,59 @@
 package services
 
 import (
-	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
 
 type DownloadFileService struct {
 	fileRepo ports.FileRepository
+	scoper   ports.PathScoper
+	policy   policy.ContentDispositionPolicy
 }
 
-func NewDownloadFileService(fileRepo ports.FileRepository) *DownloadFileService {
-	return &DownloadFileService{fileRepo: fileRepo}
+func NewDownloadFileService(fileRepo ports.FileRepository, scoper ports.PathScoper) *DownloadFileService {
+	return &DownloadFileService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *DownloadFileService) Execute(path string) (models.ReadCloser, string, error) {
-	fp, err := valueobjects.NewFilePath(path)
+func (s *DownloadFileService) Execute(user *models.User, path string) (*models.Download, error) {
+	fp, err := valueobjects.NewFilePath(requestPath(path))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
-	rel := fp.Relative()
-	exists, err := s.fileRepo.FileExists(rel)
+	physical, err := s.scoper.ReadPath(user, fp.Relative())
 	if err != nil {
-		return nil, "", err
+		return nil, err
+	}
+
+	exists, err := s.fileRepo.FileExists(physical)
+	if err != nil {
+		return nil, err
 	}
 	if !exists {
-		return nil, "", &errors.NotFoundError{Path: path}
+		return nil, &domainerrors.NotFoundError{Path: path}
 	}
 
-	isDir, err := s.fileRepo.IsDirectory(rel)
+	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if isDir {
-		return nil, "", nil
+		return nil, &domainerrors.IsDirectoryError{Path: path}
 	}
 
-	return s.fileRepo.ServeFile(rel)
+	stream, filename, err := s.fileRepo.ServeFile(physical)
+	if err != nil {
+		return nil, err
+	}
+	contentType := s.policy.ContentTypeFor(filename)
+	return &models.Download{
+		Stream:      stream,
+		Filename:    filename,
+		ContentType: contentType,
+		Inline:      s.policy.IsInlineContentType(contentType),
+	}, nil
 }

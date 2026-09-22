@@ -21,13 +21,9 @@ func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pageData, err := h.listService.Execute(pathFromQuery(r))
+	pageData, err := h.listService.Execute(currentUser(r), r.URL.Query().Get("path"))
 	if err != nil {
 		respondWithError(w, err)
-		return
-	}
-	if pageData == nil {
-		respondJSON(w, http.StatusNotFound, map[string]string{"error": "not a directory"})
 		return
 	}
 

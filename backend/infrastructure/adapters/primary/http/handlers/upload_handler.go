@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"errors"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
@@ -26,20 +24,20 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An optional path chooses the virtual destination directory. It can also
+	// be carried as a "path" multipart form field, which wins for parity with
+	// the web form the frontend submits.
 	destPrefix := strings.TrimPrefix(r.URL.Query().Get("path"), "/")
 
 	reader, err := r.MultipartReader()
 	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			respondJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "upload exceeds size limit"})
-			return
-		}
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart request"})
+		respondError(w, http.StatusBadRequest, "invalid multipart request")
 		return
 	}
 
-	var parts []models.UploadPart
+	var uploads []models.FileUpload
+	var execErrors []error
+
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -48,8 +46,7 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// A non-EOF error means the stream is broken; retrying would
 			// loop forever, so fail the request instead.
-			closeParts(parts)
-			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed multipart request"})
+			respondError(w, http.StatusBadRequest, "malformed multipart request")
 			return
 		}
 
@@ -63,26 +60,29 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		filename := part.FileName()
-		if destPrefix != "" {
-			filename = filepath.ToSlash(filepath.Join(destPrefix, filename))
+		// mime/multipart shares one buffered reader across parts, so the next
+		// part can only be parsed once this one has been fully consumed. The
+		// upload therefore happens inline: it drains the part and releases the
+		// descriptor before NextPart() advances the stream. Reading a part
+		// lazily and then calling NextPart() again silently discards its data.
+		written, execErr := h.uploadService.Execute(currentUser(r), []models.UploadPart{{
+			Name:        part.FileName(),
+			Destination: destPrefix,
+			Content:     part,
+		}})
+		if execErr != nil {
+			execErrors = append(execErrors, execErr)
+			continue
 		}
-		parts = append(parts, &uploadPartWithName{name: filename, rc: part})
+		uploads = append(uploads, written...)
 	}
 
-	uploads, err := h.uploadService.Execute(parts)
-	if err != nil {
-		respondWithError(w, err)
+	if len(uploads) == 0 && len(execErrors) > 0 {
+		respondWithError(w, execErrors[0])
 		return
 	}
-
 	if len(uploads) == 0 {
-		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "no files uploaded"})
-		return
-	}
-
-	if len(uploads) == 1 {
-		respondJSON(w, http.StatusOK, dto.UploadResult{Path: uploads[0].Filename, Size: uploads[0].Size})
+		respondError(w, http.StatusBadRequest, "no files uploaded")
 		return
 	}
 
@@ -91,19 +91,4 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		results[i] = dto.UploadResult{Path: u.Filename, Size: u.Size}
 	}
 	respondJSON(w, http.StatusOK, results)
-}
-
-type uploadPartWithName struct {
-	name string
-	rc   models.ReadCloser
-}
-
-func (u *uploadPartWithName) Filename() string           { return u.name }
-func (u *uploadPartWithName) Content() models.ReadCloser { return u.rc }
-
-// closeParts releases any streams not handed off to the upload service.
-func closeParts(parts []models.UploadPart) {
-	for _, p := range parts {
-		_ = p.Content().Close()
-	}
 }

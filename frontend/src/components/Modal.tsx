@@ -1,15 +1,26 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Panel width preset. */
+  size?: 'sm' | 'md' | 'lg';
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+const WIDTHS: Record<NonNullable<ModalProps['size']>, string> = {
+  sm: 'max-w-sm',
+  md: 'max-w-md',
+  lg: 'max-w-xl',
+};
+
+export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -23,19 +34,19 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-rise"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+        className={`glass-panel w-full ${WIDTHS[size]} max-h-[90vh] overflow-y-auto p-6`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-lg font-semibold text-slate-100">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-            aria-label="Close"
+            className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label={t('common.close')}
           >
             <X className="h-5 w-5" />
           </button>

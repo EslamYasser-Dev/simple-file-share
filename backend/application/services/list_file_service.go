@@ -1,6 +1,7 @@
 package services
 
 import (
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
@@ -8,31 +9,48 @@ import (
 
 type ListFilesService struct {
 	fileRepo ports.FileRepository
+	scoper   ports.PathScoper
 }
 
-func NewListFilesService(fileRepo ports.FileRepository) *ListFilesService {
-	return &ListFilesService{fileRepo: fileRepo}
+func NewListFilesService(fileRepo ports.FileRepository, scoper ports.PathScoper) *ListFilesService {
+	return &ListFilesService{fileRepo: fileRepo, scoper: scoper}
 }
 
-func (s *ListFilesService) Execute(path string) (*models.PageData, error) {
-	fp, err := valueobjects.NewFilePath(path)
+func (s *ListFilesService) Execute(user *models.User, path string) (*models.PageData, error) {
+	fp, err := valueobjects.NewFilePath(requestPath(path))
 	if err != nil {
 		return nil, err
 	}
 
-	rel := fp.Relative()
-	isDir, err := s.fileRepo.IsDirectory(rel)
+	physical, err := s.scoper.ReadPath(user, fp.Relative())
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := s.fileRepo.FileExists(physical)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, &domainerrors.NotFoundError{Path: path}
+	}
+
+	isDir, err := s.fileRepo.IsDirectory(physical)
 	if err != nil {
 		return nil, err
 	}
 	if !isDir {
-		return nil, nil
+		return nil, &domainerrors.NotDirectoryError{Path: path}
 	}
 
-	files, err := s.fileRepo.ListDirectory(rel)
+	files, err := s.fileRepo.ListDirectory(physical)
 	if err != nil {
 		return nil, err
 	}
 
-	return &models.PageData{Root: fp.String(), Files: files}, nil
+	for _, f := range files {
+		f.Path = s.scoper.PhysicalToVirtual(user, f.Path)
+	}
+
+	return &models.PageData{Files: files}, nil
 }

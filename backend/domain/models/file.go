@@ -9,4 +9,5 @@ type FileInfo struct {
 	Size     int64
 	IsDir    bool
 	Modified time.Time
+	Version  uint64
 }

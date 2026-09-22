@@ -46,12 +46,14 @@ RUN mkdir -p /data && chown -R nobody:nobody /data
 WORKDIR /data
 ENV APP_ENV=production \
     PORT=22010 \
+    GRPC_PORT=50051 \
     ROOT_DIR=/data \
     STATIC_DIR=/app/dist \
     ENABLE_TLS=false \
-    ENABLE_AUTH=true
+    ENABLE_AUTH=true \
+    ENABLE_GRPC=true
 
-EXPOSE 22010
+EXPOSE 22010 50051
 
 USER nobody
 

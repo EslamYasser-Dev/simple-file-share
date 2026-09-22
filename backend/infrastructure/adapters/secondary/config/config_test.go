@@ -33,9 +33,36 @@ func TestResolveMaxUploadBytes(t *testing.T) {
 		t.Fatalf("resolveMaxUploadBytes() = %d", got)
 	}
 
+	t.Setenv("MAX_UPLOAD_BYTES", "2GB")
+	if got := resolveMaxUploadBytes(); got != 2<<30 {
+		t.Fatalf("resolveMaxUploadBytes(\"2GB\") = %d", got)
+	}
+
 	t.Setenv("MAX_UPLOAD_BYTES", "invalid")
-	if got := resolveMaxUploadBytes(); got != defaultMaxUploadBytes {
-		t.Fatalf("expected default for invalid value, got %d", got)
+	if got := resolveMaxUploadBytes(); got != 0 {
+		t.Fatalf("expected unlimited default for invalid value, got %d", got)
+	}
+
+	t.Setenv("MAX_UPLOAD_BYTES", "unlimited")
+	if got := resolveMaxUploadBytes(); got != 0 {
+		t.Fatalf("resolveMaxUploadBytes(\"unlimited\") = %d, want 0", got)
+	}
+}
+
+func TestResolveDefaultQuotaBytes(t *testing.T) {
+	t.Setenv("QUOTA_DEFAULT_BYTES", "")
+	if got := resolveDefaultQuotaBytes(); got != 0 {
+		t.Fatalf("default quota should be unlimited, got %d", got)
+	}
+
+	t.Setenv("QUOTA_DEFAULT_BYTES", "100MB")
+	if got := resolveDefaultQuotaBytes(); got != 100<<20 {
+		t.Fatalf("resolveDefaultQuotaBytes(\"100MB\") = %d", got)
+	}
+
+	t.Setenv("QUOTA_DEFAULT_BYTES", "unlimited")
+	if got := resolveDefaultQuotaBytes(); got != 0 {
+		t.Fatalf("resolveDefaultQuotaBytes(\"unlimited\") = %d, want 0", got)
 	}
 }
 
@@ -55,7 +82,8 @@ func TestEnvConfigProvider(t *testing.T) {
 	if cfg.EnableAuth() {
 		t.Fatal("expected auth disabled")
 	}
-	if cfg.GetMaxUploadBytes() <= 0 {
-		t.Fatal("expected positive upload limit")
+	// Uploads are unlimited by default (0 = no cap).
+	if cfg.GetMaxUploadBytes() != 0 {
+		t.Fatalf("expected unlimited uploads by default, got %d", cfg.GetMaxUploadBytes())
 	}
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, File, FileArchive, FileImage, FileText, FileVideo, Folder, HardDrive, Loader2, Music, RefreshCw } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { useFileStore } from '../store/fileStore';
 import { formatBytes, getExtension } from '../lib/utils';
 
@@ -9,9 +10,18 @@ interface TypeStat {
   size: number;
   icon: typeof File;
   color: string;
+  bar: string;
 }
 
+const CARD_STYLES = [
+  { icon: HardDrive, tile: 'from-cyan-500 to-blue-600', glow: 'shadow-cyan-500/40', text: 'text-cyan-300' },
+  { icon: File, tile: 'from-emerald-500 to-teal-600', glow: 'shadow-emerald-500/40', text: 'text-emerald-300' },
+  { icon: Folder, tile: 'from-amber-500 to-orange-600', glow: 'shadow-amber-500/40', text: 'text-amber-300' },
+  { icon: BarChart3, tile: 'from-violet-500 to-fuchsia-600', glow: 'shadow-violet-500/40', text: 'text-violet-300' },
+] as const;
+
 export function Summary() {
+  const { t } = useI18n();
   const rootFiles = useFileStore((s) => s.rootFiles);
   const refreshRoot = useFileStore((s) => s.refreshRoot);
   const [isLoading, setIsLoading] = useState(rootFiles.length === 0);
@@ -25,13 +35,13 @@ export function Summary() {
     (async () => {
       const res = await refreshRoot();
       if (!mounted) return;
-      if (!res.ok) setError('Failed to load storage summary');
+      if (!res.ok) setError(t('summary.loadFailed'));
       setIsLoading(false);
     })();
     return () => {
       mounted = false;
     };
-  }, [refreshRoot, attempt]);
+  }, [refreshRoot, attempt, t]);
 
   const loadAll = () => setAttempt((v) => v + 1);
 
@@ -41,8 +51,17 @@ export function Summary() {
     const totalSize = fileList.reduce((acc, f) => acc + f.size, 0);
 
     const typeMap = new Map<string, TypeStat>();
-    const addType = (key: string, label: string, icon: typeof File, color: string, size: number, count: number) => {
-      const existing = typeMap.get(key) || { label, count: 0, size: 0, icon, color };
+    const labelFor = (key: string): string =>
+      ({
+        images: t('summary.typeImages'),
+        video: t('summary.typeVideo'),
+        audio: t('summary.typeAudio'),
+        archives: t('summary.typeArchives'),
+        documents: t('summary.typeDocuments'),
+        other: t('summary.typeOther'),
+      })[key] ?? key;
+    const addType = (key: string, icon: typeof File, color: string, bar: string, size: number, count: number) => {
+      const existing = typeMap.get(key) || { label: labelFor(key), count: 0, size: 0, icon, color, bar };
       existing.count += count;
       existing.size += size;
       typeMap.set(key, existing);
@@ -51,17 +70,17 @@ export function Summary() {
     for (const f of fileList) {
       const ext = getExtension(f.name);
       if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) {
-        addType('images', 'Images', FileImage, 'text-emerald-400', f.size, 1);
+        addType('images', FileImage, 'text-emerald-400', 'from-emerald-400 to-teal-500', f.size, 1);
       } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
-        addType('video', 'Video', FileVideo, 'text-purple-400', f.size, 1);
+        addType('video', FileVideo, 'text-purple-400', 'from-purple-400 to-fuchsia-500', f.size, 1);
       } else if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) {
-        addType('audio', 'Audio', Music, 'text-pink-400', f.size, 1);
+        addType('audio', Music, 'text-pink-400', 'from-pink-400 to-rose-500', f.size, 1);
       } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-        addType('archives', 'Archives', FileArchive, 'text-amber-400', f.size, 1);
+        addType('archives', FileArchive, 'text-amber-400', 'from-amber-400 to-orange-500', f.size, 1);
       } else if (['txt', 'md', 'log', 'pdf', 'doc', 'docx'].includes(ext)) {
-        addType('documents', 'Documents', FileText, 'text-sky-400', f.size, 1);
+        addType('documents', FileText, 'text-sky-400', 'from-sky-400 to-cyan-500', f.size, 1);
       } else {
-        addType('other', 'Other', File, 'text-slate-400', f.size, 1);
+        addType('other', File, 'text-slate-400', 'from-slate-400 to-slate-500', f.size, 1);
       }
     }
 
@@ -71,15 +90,15 @@ export function Summary() {
       totalSize,
       types: Array.from(typeMap.values()).sort((a, b) => b.size - a.size),
     };
-  }, [rootFiles]);
+  }, [rootFiles, t]);
 
   const maxTypeSize = Math.max(...stats.types.map((t) => t.size), 1);
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-32 text-slate-500">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        <p className="text-sm">Loading summary...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+        <p className="text-sm">{t('summary.loading')}</p>
       </div>
     );
   }
@@ -90,10 +109,10 @@ export function Summary() {
         <p className="text-sm text-red-400">{error}</p>
         <button
           onClick={loadAll}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
+          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-white"
         >
           <RefreshCw className="h-4 w-4" />
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );
@@ -102,63 +121,44 @@ export function Summary() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Storage Summary</h1>
-        <p className="text-sm text-slate-400">Overview of your files and storage usage</p>
+        <h1 className="text-3xl font-bold tracking-tight">
+          <span className="text-gradient">{t('summary.title')}</span>
+        </h1>
+        <p className="mt-1 text-sm text-slate-400">{t('summary.overview')}</p>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
-              <HardDrive className="h-5 w-5 text-blue-400" />
+        {[
+          { value: formatBytes(stats.totalSize), label: t('summary.totalStorage') },
+          { value: String(stats.files), label: t('summary.files') },
+          { value: String(stats.dirs), label: t('summary.folders') },
+          { value: String(stats.types.length), label: t('summary.fileTypes') },
+        ].map((card, i) => {
+          const style = CARD_STYLES[i];
+          const Icon = style.icon;
+          return (
+            <div key={card.label} className="glass-panel card-hover p-5">
+              <div className="flex items-center gap-3">
+                <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${style.tile} shadow-lg ${style.glow}`}>
+                  <Icon className={`h-5 w-5 ${style.text}`} />
+                  <span className={`absolute inset-0 rounded-xl bg-gradient-to-br ${style.tile} blur-md opacity-40 animate-glow`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-2xl font-bold tracking-tight">{card.value}</p>
+                  <p className="text-xs text-slate-500">{card.label}</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold">{formatBytes(stats.totalSize)}</p>
-              <p className="text-xs text-slate-500">Total Storage</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10">
-              <File className="h-5 w-5 text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{stats.files}</p>
-              <p className="text-xs text-slate-500">Files</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
-              <Folder className="h-5 w-5 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{stats.dirs}</p>
-              <p className="text-xs text-slate-500">Folders</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
-              <BarChart3 className="h-5 w-5 text-purple-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{stats.types.length}</p>
-              <p className="text-xs text-slate-500">File Types</p>
-            </div>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {/* Storage breakdown */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-        <h2 className="mb-4 text-lg font-semibold">Storage by Type</h2>
+      <div className="glass-panel p-6">
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">{t('summary.storageByType')}</h2>
         {stats.types.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">No files uploaded yet</p>
+          <p className="py-8 text-center text-sm text-slate-500">{t('summary.noFilesYet')}</p>
         ) : (
           <div className="space-y-4">
             {stats.types.map((type) => {
@@ -174,9 +174,9 @@ export function Summary() {
                     </span>
                     <span className="text-slate-400">{formatBytes(type.size)}</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/5">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+                      className={`h-full rounded-full bg-gradient-to-r ${type.bar} shadow-[0_0_12px_rgba(34,211,238,0.5)] transition-all duration-700`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>

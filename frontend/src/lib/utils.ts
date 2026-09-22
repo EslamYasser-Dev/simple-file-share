@@ -7,6 +7,12 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+/** Format a transfer rate (bytes per second) like "1.2 MB/s". */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '—';
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
 /** Format an ISO date string into a localized date-time string. */
 export function formatDate(iso: string): string {
   if (!iso) return '—';
@@ -28,12 +34,12 @@ export function timeAgo(iso: string): string {
   if (Number.isNaN(date.getTime())) return '—';
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   const units: [number, string][] = [
-    [60, 's'],
     [60, 'm'],
-    [24, 'h'],
-    [7, 'd'],
-    [4.35, 'w'],
-    [12, 'mo'],
+    [60, 'h'],
+    [24, 'd'],
+    [7, 'w'],
+    [4.35, 'mo'],
+    [12, 'y'],
   ];
   let value = seconds;
   let unit = 's';
@@ -49,6 +55,40 @@ export function timeAgo(iso: string): string {
 export function getExtension(name: string): string {
   const idx = name.lastIndexOf('.');
   return idx === -1 ? '' : name.slice(idx + 1).toLowerCase();
+}
+
+export type ViewerKind = 'pdf' | 'image' | 'video' | 'audio' | 'markdown' | 'text' | null;
+
+const VIEWER_IMAGE = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico']);
+const VIEWER_VIDEO = new Set(['mp4', 'webm']);
+const VIEWER_AUDIO = new Set(['mp3', 'wav', 'ogg', 'm4a', 'flac']);
+const VIEWER_TEXT = new Set(['txt', 'log', 'csv', 'json', 'yaml', 'yml', 'xml']);
+
+/** Best in-app viewer kind for a file name, or null if unsupported. */
+export function viewerKindFor(name: string): ViewerKind {
+  const ext = getExtension(name);
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'md' || ext === 'markdown') return 'markdown';
+  if (VIEWER_IMAGE.has(ext)) return 'image';
+  if (VIEWER_VIDEO.has(ext)) return 'video';
+  if (VIEWER_AUDIO.has(ext)) return 'audio';
+  if (VIEWER_TEXT.has(ext)) return 'text';
+  return null;
+}
+
+/** Map a file name to the content type the browser expects for its kind. */
+export function contentTypeFor(name: string): string {
+  const ext = getExtension(name);
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'md' || ext === 'markdown') return 'text/markdown';
+  if (ext === 'mp3') return 'audio/mpeg';
+  if (ext === 'wav') return 'audio/wav';
+  if (ext === 'ogg') return 'audio/ogg';
+  if (ext === 'mp4') return 'video/mp4';
+  if (ext === 'webm') return 'video/webm';
+  if (ext === 'txt' || ext === 'log' || ext === 'csv' || ext === 'yaml' || ext === 'yml' || ext === 'xml' || ext === 'json')
+    return 'text/plain';
+  return 'application/octet-stream';
 }
 
 /** Return a color key for a file extension (used for file-type badges). */

@@ -1,69 +1,60 @@
-# React + TypeScript + Vite
+# FileShare — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript + Vite single-page app for the Simple File Share server.
+The production build is embedded into and served by the Go backend.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** with hooks and `useActionState` form actions
+- **Vite 7** (SWC) for dev server and builds
+- **TypeScript** (strict)
+- **Tailwind CSS v4** for styling
+- **Zustand** for global state (auth, files, toasts)
+- **lucide-react** for icons
+- **Custom i18n** (`src/i18n`) with English + Arabic and RTL support
 
-## Expanding the ESLint configuration
+## Development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+The dev server proxies `/api` to the backend (default `http://localhost:3000`).
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev      # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Override the proxy target with `VITE_API_URL` in `.env` if the backend runs
+elsewhere. Leave it empty to use the same origin.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Scripts
 
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Type-check (`tsc -b`) and build to `dist/` |
+| `npm run preview` | Preview the production build locally |
+| `npm run lint` | Run ESLint |
+| `npx vite build --mode analyze` | Build with the bundle visualizer |
+
+## Configuration
+
+Build-time variables (see `src/config/index.ts`):
+
+- `VITE_API_URL` — API base URL; empty uses the current origin.
+- `VITE_MAX_UPLOAD_MB` — client-side upload size limit in MB; `0` = unlimited.
+- `VITE_BASE_PATH` — sub-path the app is served from; defaults to `/`. GitHub
+  project pages use `/<repo>/` (set automatically by the Pages deploy).
+
+## Project structure
+
+```
+src/
+├── components/   # Layout, Modal, Toast, FilePreview, FileIcon
+├── config/       # API base URL and upload limits
+├── hooks/        # useToast
+├── i18n/         # language provider and translations
+├── lib/          # shared utilities (formatting)
+├── pages/        # home, summary, chat, login, register, admin
+├── services/     # typed API client
+├── store/        # Zustand stores (auth, files, toasts)
+└── App.tsx       # routing and auth gate
 ```

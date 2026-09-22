@@ -1,5 +1,6 @@
-import { useActionState, useEffect, useState, useTransition } from 'react';
-import { Layout } from './components/Layout';
+import { useActionState, useCallback, useEffect, useState, useTransition } from 'react';
+import { AppBackground, Layout } from './components/Layout';
+import type { Page } from './components/Layout';
 import { Modal } from './components/Modal';
 import { ToastProvider } from './components/Toast';
 import { useToast } from './hooks/useToast';
@@ -7,18 +8,27 @@ import { Home } from './pages/home';
 import { Summary } from './pages/summary';
 import { Chat } from './pages/chat';
 import { Login } from './pages/login';
+import { Register } from './pages/register';
+import { Admin } from './pages/admin';
 import { api, clearCredentials, setCredentials } from './services/api';
 import { useFileStore } from './store/fileStore';
-import { Loader2 } from 'lucide-react';
+import { useAuthStore } from './store/authStore';
+import { useI18n } from './i18n';
+import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 
-type Page = 'files' | 'summary' | 'chat';
-
-function AppShell() {
+function AppShell({ onSignOut }: { onSignOut: () => void }) {
+  const { t } = useI18n();
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.isAdmin ?? false;
+  const setScope = useFileStore((s) => s.setScope);
   const [page, setPage] = useState<Page>('files');
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [, startTransition] = useTransition();
 
   const navigate = (next: Page) => {
+    if (next === 'files' || next === 'shared') {
+      setScope(next === 'shared' ? 'shared' : 'files');
+    }
     startTransition(() => setPage(next));
   };
 
@@ -28,14 +38,17 @@ function AppShell() {
       onNavigate={navigate}
       onUpload={() => navigate('files')}
       onNewFolder={() => setShowNewFolder(true)}
+      onSignOut={onSignOut}
     >
       {page === 'files' && <Home />}
+      {page === 'shared' && <Home />}
       {page === 'summary' && <Summary />}
       {page === 'chat' && <Chat />}
+      {page === 'admin' && isAdmin && <Admin />}
 
       {/* New folder modal (mounted only while open, so its action state resets) */}
       {showNewFolder && (
-        <Modal open onClose={() => setShowNewFolder(false)} title="New Folder">
+        <Modal open onClose={() => setShowNewFolder(false)} title={t('nav.newFolder')}>
           <NewFolderForm onClose={() => setShowNewFolder(false)} />
         </Modal>
       )}
@@ -52,14 +65,15 @@ interface FolderFormState {
 function NewFolderForm({ onClose }: { onClose: () => void }) {
   const createDirectory = useFileStore((s) => s.createDirectory);
   const { success, error } = useToast();
+  const { t } = useI18n();
 
   const [state, submit, isPending] = useActionState(
     async (_prev: FolderFormState, formData: FormData): Promise<FolderFormState> => {
       const name = String(formData.get('name') ?? '').trim();
-      if (!name) return { error: 'Folder name is required' };
+      if (!name) return { error: t('folder.nameRequired') };
       const result = await createDirectory(name);
       if (result.error) return { error: result.error };
-      success('Folder created');
+      success(t('folder.created'));
       return { message: 'created' };
     },
     {},
@@ -83,25 +97,25 @@ function NewFolderForm({ onClose }: { onClose: () => void }) {
         name="name"
         autoFocus
         type="text"
-        placeholder="Folder name"
-        className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none transition-colors focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
+        placeholder={t('folder.namePlaceholder')}
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none backdrop-blur transition-all focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
       />
       {state.error && <p className="text-xs text-red-400">{state.error}</p>}
       <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="submit"
           disabled={isPending}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/30 transition-all duration-300 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
         >
           {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-          Create
+          {t('common.create')}
         </button>
       </div>
     </form>
@@ -118,43 +132,128 @@ export default function App() {
 
 /** Probes the API on mount; shows the login screen when credentials are required. */
 function AuthGate() {
-  const [status, setStatus] = useState<'checking' | 'login' | 'ready'>('checking');
+  const { t } = useI18n();
+  const setUser = useAuthStore((s) => s.setUser);
+  const setSignupEnabled = useAuthStore((s) => s.setSignupEnabled);
+  const signupEnabled = useAuthStore((s) => s.signupEnabled);
+  const [status, setStatus] = useState<'checking' | 'login' | 'register' | 'ready' | 'error'>('checking');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const loadAuthInfo = useCallback(async () => {
+    const result = await api.authInfo();
+    if (!result.error) {
+      setSignupEnabled(Boolean(result.data?.signupEnabled));
+    }
+  }, [setSignupEnabled]);
+
+  const probe = useCallback(async () => {
+    setStatus('checking');
+    setErrorMessage(null);
+    await loadAuthInfo();
+    const result = await api.me();
+    if (result.unauthorized) {
+      setStatus('login');
+      return;
+    }
+    if (result.error) {
+      setErrorMessage(result.error);
+      setStatus('error');
+      return;
+    }
+    if (result.data) setUser(result.data);
+    setStatus('ready');
+  }, [loadAuthInfo, setUser]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const result = await api.listFiles('');
-      if (cancelled) return;
-      setStatus(result.unauthorized ? 'login' : 'ready');
-    })();
-    return () => {
-      cancelled = true;
+    void probe();
+  }, [probe]);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearCredentials();
+      useAuthStore.getState().clear();
+      setStatus('login');
     };
+    window.addEventListener('fs:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('fs:unauthorized', onUnauthorized);
   }, []);
 
-  const handleLogin = async (username: string, password: string): Promise<string | null> => {
-    setCredentials(username, password);
-    const probe = await api.listFiles('');
-    if (probe.unauthorized) {
-      clearCredentials();
-      return 'Invalid username or password';
-    }
-    setStatus('ready');
-    return null;
-  };
+  const handleLogin = useCallback(
+    async (username: string, password: string): Promise<string | null> => {
+      setCredentials(username, password);
+      const result = await api.me();
+      if (result.unauthorized) {
+        clearCredentials();
+        return t('auth.invalidCredentials');
+      }
+      if (result.error) {
+        return result.error;
+      }
+      if (result.data) setUser(result.data);
+      setStatus('ready');
+      return null;
+    },
+    [setUser, t],
+  );
+
+  const handleSignOut = useCallback(() => {
+    clearCredentials();
+    useAuthStore.getState().clear();
+    useFileStore.getState().setScope('files');
+    setStatus('login');
+  }, []);
 
   if (status === 'checking') {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 text-slate-500">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        <p className="text-sm">Connecting...</p>
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-3 text-slate-500">
+        <AppBackground />
+        <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+        <p className="text-sm">{t('auth.connecting')}</p>
       </div>
     );
   }
 
-  if (status === 'login') {
-    return <Login onLogin={handleLogin} />;
+  if (status === 'error') {
+    return (
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <AppBackground />
+        <AlertCircle className="h-10 w-10 text-red-400" />
+        <div>
+          <p className="text-sm font-medium text-slate-300">{t('auth.unableToReach')}</p>
+          <p className="mt-1 text-xs text-slate-500">{errorMessage}</p>
+        </div>
+        <button
+          onClick={() => void probe()}
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/30 transition-all duration-300 hover:shadow-cyan-400/50 hover:brightness-110"
+        >
+          <RefreshCw className="h-4 w-4" />
+          {t('common.retry')}
+        </button>
+      </div>
+    );
   }
 
-  return <AppShell />;
+  if (status === 'register') {
+    return (
+      <Register
+        onRegistered={async (username, password) => {
+          const err = await handleLogin(username, password);
+          return err;
+        }}
+        onBack={() => setStatus('login')}
+      />
+    );
+  }
+
+  if (status === 'login') {
+    return (
+      <Login
+        onLogin={handleLogin}
+        signupEnabled={signupEnabled}
+        onShowRegister={() => setStatus('register')}
+      />
+    );
+  }
+
+  return <AppShell onSignOut={handleSignOut} />;
 }

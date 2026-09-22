@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package fileshare.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/EslamYasser-Dev/simple-file-share/api/proto/fileshare/v1;filesharev1";
+
+// AuthService exposes account lifecycle and identity operations.
+service AuthService {
+  // Register creates a new account (public, gated by ENABLE_SIGNUP).
+  rpc Register(RegisterRequest) returns (User);
+  // Authenticate validates credentials and returns the account. Subsequent
+  // calls must still carry Basic credentials in request metadata.
+  rpc Authenticate(AuthenticateRequest) returns (User);
+  // Me returns the authenticated caller's identity.
+  rpc Me(MeRequest) returns (User);
+  // GetAuthInfo reports runtime auth capabilities (public).
+  rpc GetAuthInfo(GetAuthInfoRequest) returns (AuthInfoResponse);
+  // ListUsers returns accounts with storage usage (admin only).
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+}
+
+// FileService mirrors the HTTP file API.
+service FileService {
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetFileInfo(GetFileInfoRequest) returns (FileInfo);
+  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  rpc CreateDirectory(CreateDirectoryRequest) returns (CreateDirectoryResponse);
+  rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
+  rpc UpdateFileContent(UpdateFileContentRequest) returns (UpdateFileContentResponse);
+  // UploadFile accepts a metadata message followed by file chunks.
+  rpc UploadFile(stream UploadRequest) returns (UploadResponse);
+  // DownloadFile streams a file (or a zipped directory) in chunks.
+  rpc DownloadFile(DownloadFileRequest) returns (stream DownloadChunk);
+}
+
+message User {
+  string username = 1;
+  bool is_admin = 2;
+}
+
+message AuthInfoResponse {
+  bool signup_enabled = 1;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message AuthenticateRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message MeRequest {}
+
+message GetAuthInfoRequest {}
+
+message ListUsersRequest {}
+
+message UserStats {
+  string username = 1;
+  int64 file_count = 2;
+  int64 total_size = 3;
+  bool is_admin = 4;
+}
+
+message ListUsersResponse {
+  repeated UserStats users = 1;
+}
+
+message FileInfo {
+  string name = 1;
+  string path = 2;
+  int64 size = 3;
+  bool is_dir = 4;
+  google.protobuf.Timestamp modified = 5;
+}
+
+message ListFilesRequest {
+  string path = 1;
+}
+
+message ListFilesResponse {
+  repeated FileInfo files = 1;
+}
+
+message GetFileInfoRequest {
+  string path = 1;
+}
+
+message SearchFilesRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchFilesResponse {
+  repeated FileInfo files = 1;
+}
+
+message CreateDirectoryRequest {
+  string path = 1;
+}
+
+message CreateDirectoryResponse {
+  string message = 1;
+}
+
+message DeletePathRequest {
+  string path = 1;
+}
+
+message DeletePathResponse {
+  string message = 1;
+}
+
+message UpdateFileContentRequest {
+  string path = 1;
+  string content = 2;
+}
+
+message UpdateFileContentResponse {
+  string message = 1;
+  int64 size = 2;
+}
+
+message UploadMetadata {
+  // Destination directory (virtual, namespace-scoped).
+  string path = 1;
+  string filename = 2;
+}
+
+message UploadRequest {
+  oneof payload {
+    UploadMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message UploadResponse {
+  string path = 1;
+  int64 size = 2;
+}
+
+message DownloadFileRequest {
+  string path = 1;
+}
+
+message DownloadChunk {
+  // Set on the first chunk only.
+  string filename = 1;
+  string content_type = 2;
+  bytes data = 3;
+}

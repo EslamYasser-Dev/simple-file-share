@@ -13,30 +13,40 @@ import (
 	_ "embed"
 
 	"github.com/EslamYasser-Dev/simple-file-share/api"
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 type RouteHandlers struct {
-	Files     http.Handler
-	Download  http.Handler
-	Upload    http.Handler
-	Directory http.Handler
-	FileInfo  http.Handler
-	Search    http.Handler
-	Health    http.Handler
+	Files      http.Handler
+	Download   http.Handler
+	View       http.Handler
+	Upload     http.Handler
+	Update     http.Handler
+	Directory  http.Handler
+	FileInfo   http.Handler
+	Search     http.Handler
+	Register   http.Handler
+	Me         http.Handler
+	AuthInfo   http.Handler
+	AdminUsers http.Handler
+	AdminQuota http.Handler
+	Shares     http.Handler
+	Share      http.Handler
+	Health     http.Handler
 }
 
 type Server struct {
-	port           string
-	tlsGenerator   ports.TLSCertGenerator
-	logger         ports.Logger
-	handlers       RouteHandlers
-	authProvider   ports.AuthProvider
-	enableAuth     bool
-	maxUploadBytes int64
-	httpServer     *http.Server
-	staticDir      string
-	useTLS         bool
+	port         string
+	tlsGenerator ports.TLSCertGenerator
+	logger       ports.Logger
+	handlers     RouteHandlers
+	authService  *services.AuthenticateService
+	enableAuth   bool
+	httpServer   *http.Server
+	staticDir    string
+	useTLS       bool
+	shareLimiter *IPLimiter
 }
 
 func NewServer(
@@ -44,18 +54,16 @@ func NewServer(
 	tlsGen ports.TLSCertGenerator,
 	logger ports.Logger,
 	handlers RouteHandlers,
-	authProvider ports.AuthProvider,
+	authService *services.AuthenticateService,
 	enableAuth bool,
-	maxUploadBytes int64,
 ) *Server {
 	return &Server{
-		port:           port,
-		tlsGenerator:   tlsGen,
-		logger:         logger,
-		handlers:       handlers,
-		authProvider:   authProvider,
-		enableAuth:     enableAuth,
-		maxUploadBytes: maxUploadBytes,
+		port:         port,
+		tlsGenerator: tlsGen,
+		logger:       logger,
+		handlers:     handlers,
+		authService:  authService,
+		enableAuth:   enableAuth,
 		httpServer: &http.Server{
 			Addr: ":" + port,
 			TLSConfig: &tls.Config{
@@ -67,6 +75,7 @@ func NewServer(
 			IdleTimeout:       DefaultIdleTimeout,
 			MaxHeaderBytes:    DefaultMaxHeaderBytes,
 		},
+		shareLimiter: NewIPLimiter(shareLimitRate, shareLimitBurst),
 	}
 }
 
@@ -76,6 +85,11 @@ func (s *Server) SetStaticFileServer(dir string) {
 
 func (s *Server) ConfigureTLS(enableTLS bool) {
 	s.useTLS = enableTLS
+}
+
+// RegisterRoutesForTest exposes the internal mux for integration tests.
+func (s *Server) RegisterRoutesForTest() *http.ServeMux {
+	return s.registerRoutes()
 }
 
 func (s *Server) Start() error {
@@ -147,14 +161,41 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	apiChain := s.apiMiddleware()
 	mux.Handle("/api/files", apiChain(s.handlers.Files))
 	mux.Handle("/api/files/download", apiChain(s.handlers.Download))
+	mux.Handle("/api/files/view", apiChain(s.handlers.View))
 	mux.Handle("/api/files/info", apiChain(s.handlers.FileInfo))
 	mux.Handle("/api/files/search", apiChain(s.handlers.Search))
-	mux.Handle("/api/upload", chainMiddleware(s.handlers.Upload, append(s.apiMiddlewareFuncs(), MaxBytesMiddleware(s.maxUploadBytes))...))
+	mux.Handle("/api/upload", apiChain(s.handlers.Upload))
+	mux.Handle("/api/files/content", apiChain(s.handlers.Update))
 	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
+	mux.Handle("/api/auth/me", apiChain(s.handlers.Me))
+	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUsers))
+	mux.Handle("/api/admin/users/{username}/quota", apiChain(s.handlers.AdminQuota))
+	mux.Handle("/api/shares", apiChain(s.handlers.Shares))
 
-	mux.Handle("/health", chainMiddleware(s.handlers.Health, corsMiddleware, func(next http.Handler) http.Handler {
-		return loggingMiddleware(next, s.logger)
-	}))
+	// Public auth endpoints (no credentials required).
+	publicMiddleware := func(h http.Handler) http.Handler {
+		return chainMiddleware(h, corsMiddleware, func(next http.Handler) http.Handler {
+			return loggingMiddleware(next, s.logger)
+		})
+	}
+	mux.Handle("/api/auth/register", publicMiddleware(s.handlers.Register))
+	mux.Handle("/api/auth/info", publicMiddleware(s.handlers.AuthInfo))
+
+	// Public share links: the token is the credential. The route is rate-limited
+	// per client address so it cannot be swept for valid tokens.
+	mux.Handle(
+		"/api/share/",
+		chainMiddleware(
+			s.handlers.Share,
+			corsMiddleware,
+			RateLimitMiddleware(s.shareLimiter),
+			func(next http.Handler) http.Handler {
+				return loggingMiddleware(next, s.logger)
+			},
+		),
+	)
+
+	mux.Handle("/health", publicMiddleware(s.handlers.Health))
 
 	mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
@@ -197,8 +238,8 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 			return loggingMiddleware(next, s.logger)
 		},
 	}
-	if s.enableAuth && s.authProvider != nil {
-		middlewares = append(middlewares, AuthMiddleware(s.authProvider))
+	if s.enableAuth && s.authService != nil {
+		middlewares = append(middlewares, AuthMiddleware(s.authService))
 	}
 	return middlewares
 }

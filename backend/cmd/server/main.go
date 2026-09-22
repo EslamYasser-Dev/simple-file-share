@@ -4,7 +4,9 @@ import (
 	"os"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	grpcapi "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/grpc"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
@@ -26,41 +28,92 @@ func main() {
 		return
 	}
 
+	// The storage root is owned exclusively by this server: validate it, create
+	// it when missing, and lock it down to owner-only permissions.
+	rootDir, err := fs.PrepareStorageRoot(cfg.GetRootDir())
+	if err != nil {
+		logger.Fatal("Invalid storage root", "error", err)
+		return
+	}
+	logger.Info("Storage root ready", "path", rootDir)
+
 	indexRepo := memory.NewFileIndexRepository()
-	localRepo := fs.NewLocalFileRepository(cfg.GetRootDir())
+	localRepo := fs.NewLocalFileRepository(rootDir)
 	fileRepo := fs.NewIndexedFileRepository(localRepo, indexRepo)
 
 	rebuildService := services.NewRebuildIndexService(indexRepo)
-	if err := rebuildService.Execute(cfg.GetRootDir(), fs.WalkRoot); err != nil {
+	if err := rebuildService.Execute(rootDir, fs.WalkRoot); err != nil {
 		logger.Warn("File index rebuild failed", "error", err)
 	} else {
 		logger.Info("File search index ready")
 	}
 
-	authProvider := auth.NewStaticAuthProvider(cfg.GetUsername(), cfg.GetPassword())
+	scoper := policy.NewPathScoper()
+	userRepo := fs.NewUserFileRepository(rootDir)
+	shareRepo := fs.NewShareFileRepository(rootDir)
+	hasher := auth.NewPBKDF2Hasher()
+
+	seedService := services.NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
+	if !cfg.EnableAuth() {
+		logger.Info("Auth disabled — running as system admin view")
+	} else if seeded, err := seedService.Execute(cfg.GetUsername(), cfg.GetPassword()); err != nil {
+		logger.Warn("Admin seed failed", "error", err)
+	} else if seeded {
+		logger.Info("Seeded admin account", "username", cfg.GetUsername())
+	}
+
+	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
+	authenticateService := services.NewAuthenticateService(authProvider)
 	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
 
-	listService := services.NewListFilesService(fileRepo)
-	downloadService := services.NewDownloadFileService(fileRepo)
-	zipService := services.NewDownloadZipService(fileRepo)
-	uploadService := services.NewUploadService(fileRepo)
-	createDirService := services.NewCreateDirectoryService(fileRepo)
-	deleteService := services.NewDeletePathService(fileRepo)
-	infoService := services.NewGetFileInfoService(fileRepo)
-	searchService := services.NewSearchFilesService(indexRepo)
+	listService := services.NewListFilesService(fileRepo, scoper)
+	fileDownloadService := services.NewDownloadFileService(fileRepo, scoper)
+	zipService := services.NewDownloadZipService(fileRepo, scoper)
+	downloadService := services.NewDownloadService(fileDownloadService, zipService)
+	uploadService := services.NewUploadService(fileRepo, scoper, indexRepo, userRepo, cfg.GetMaxUploadBytes())
+	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
+	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
+	deleteService := services.NewDeletePathService(fileRepo, scoper)
+	infoService := services.NewGetFileInfoService(fileRepo, scoper)
+	searchService := services.NewSearchFilesService(indexRepo, scoper)
+	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, cfg.EnableSignup(), cfg.GetDefaultQuotaBytes())
+	usersService := services.NewListUsersService(userRepo, indexRepo, scoper)
+	userInfoService := services.NewUserInfoService(userRepo, indexRepo, scoper)
+	quotaService := services.NewUpdateUserQuotaService(userRepo, indexRepo, scoper)
+
+	// Public share links: management handlers require auth, resolution does not.
+	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper)
+	listSharesService := services.NewListSharesService(shareRepo, scoper)
+	revokeShareService := services.NewRevokeShareService(shareRepo, scoper)
+	resolveShareService := services.NewResolveShareService(shareRepo, scoper, downloadService)
+	purgeSharesService := services.NewPurgeExpiredSharesService(shareRepo)
+	if purged, err := purgeSharesService.Execute(); err != nil {
+		logger.Warn("Share cleanup failed", "error", err)
+	} else if purged > 0 {
+		logger.Info("Purged expired share links", "count", purged)
+	}
 
 	listHandler := handlers.NewListHandler(listService)
 	deleteHandler := handlers.NewDeleteHandler(deleteService)
 	filesHandler := handlers.NewFilesHandler(listHandler, deleteHandler)
 
 	routeHandlers := xhttp.RouteHandlers{
-		Files:     filesHandler,
-		Download:  handlers.NewDownloadHandler(downloadService, zipService),
-		Upload:    handlers.NewUploadHandler(uploadService),
-		Directory: handlers.NewDirectoryHandler(createDirService),
-		FileInfo:  handlers.NewFileInfoHandler(infoService),
-		Search:    handlers.NewSearchHandler(searchService),
-		Health:    handlers.NewHealthHandler(),
+		Files:      filesHandler,
+		Download:   handlers.NewDownloadHandler(downloadService),
+		View:       handlers.NewViewHandler(fileDownloadService),
+		Upload:     handlers.NewUploadHandler(uploadService),
+		Update:     handlers.NewUpdateFileHandler(updateService),
+		Directory:  handlers.NewDirectoryHandler(createDirService),
+		FileInfo:   handlers.NewFileInfoHandler(infoService),
+		Search:     handlers.NewSearchHandler(searchService),
+		Register:   handlers.NewRegisterHandler(registerService),
+		Me:         handlers.NewMeHandler(userInfoService),
+		AuthInfo:   handlers.NewAuthInfoHandler(cfg.EnableSignup()),
+		AdminUsers: handlers.NewAdminUsersHandler(usersService),
+		AdminQuota: handlers.NewAdminQuotaHandler(quotaService),
+		Shares:     handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService),
+		Share:      handlers.NewShareDownloadHandler(resolveShareService),
+		Health:     handlers.NewHealthHandler(),
 	}
 
 	server := xhttp.NewServer(
@@ -68,16 +121,49 @@ func main() {
 		tlsGenerator,
 		logger,
 		routeHandlers,
-		authProvider,
+		authenticateService,
 		cfg.EnableAuth(),
-		cfg.GetMaxUploadBytes(),
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
 
+	if cfg.EnableGRPC() {
+		authService := grpcapi.NewAuthService(registerService, usersService, authenticateService, cfg.EnableSignup())
+		fileService := grpcapi.NewFileService(
+			listService,
+			infoService,
+			searchService,
+			createDirService,
+			deleteService,
+			updateService,
+			uploadService,
+			downloadService,
+		)
+		grpcServer, err := grpcapi.NewServer(
+			cfg.GetGRPCPort(),
+			logger,
+			tlsGenerator,
+			cfg.EnableTLS(),
+			authenticateService,
+			cfg.EnableAuth(),
+			authService,
+			fileService,
+		)
+		if err != nil {
+			logger.Fatal("Failed to create gRPC server", "error", err)
+			return
+		}
+		go func() {
+			if err := grpcServer.Start(); err != nil {
+				logger.Error("gRPC server failed", "error", err)
+			}
+		}()
+		defer grpcServer.Stop()
+	}
+
 	// Serve the built React frontend whenever present (both dev and production).
 	// Point STATIC_DIR at the directory containing index.html + assets. Serving the
-	// frontend from the Go binary lets Render host the whole app as a single
-	// web service (one URL) for the API and the UI.
+	// frontend from the Go binary lets one container host the whole app (the API
+	// and the UI) behind a single origin.
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "frontend/dist"
@@ -95,6 +181,6 @@ func loadConfig(logger ports.Logger) (ports.ConfigProvider, error) {
 		logger.Info("Running in PRODUCTION mode")
 		return config.NewEnvConfigProvider()
 	}
-	logger.Info("Running in DEVELOPMENT mode (auth disabled, TLS disabled)")
+	logger.Info("Running in DEVELOPMENT mode (auth/TLS disabled unless explicitly enabled)")
 	return config.NewDevConfigProvider()
 }

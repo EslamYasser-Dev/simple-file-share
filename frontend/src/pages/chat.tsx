@@ -1,18 +1,15 @@
 import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { Activity, Loader2, Search, SearchX } from 'lucide-react';
 import { api } from '../services/api';
+import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
+import { useI18n } from '../i18n';
 import { formatBytes, timeAgo } from '../lib/utils';
 
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDir: boolean;
-  modified: string;
-}
+let searchSeq = 0;
 
 export function Chat() {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
   const [results, setResults] = useState<FileItem[]>([]);
@@ -22,7 +19,9 @@ export function Chat() {
 
   const handleSearch = useCallback(async (q: string) => {
     const trimmed = q.trim();
+    const seq = ++searchSeq;
     if (!trimmed) {
+      if (seq !== searchSeq) return;
       setResults([]);
       setSearched(false);
       return;
@@ -31,17 +30,19 @@ export function Chat() {
     setError(null);
     try {
       const { data, error: err } = await api.searchFiles(trimmed);
+      if (seq !== searchSeq) return;
       if (err) throw new Error(err);
       setResults(data || []);
       setSearched(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Search failed');
+      if (seq !== searchSeq) return;
+      setError(e instanceof Error ? e.message : t('chat.searchFailed'));
       setResults([]);
       setSearched(true);
     } finally {
-      setIsLoading(false);
+      if (seq === searchSeq) setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -53,23 +54,25 @@ export function Chat() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Search</h1>
-        <p className="text-sm text-slate-400">Find files and folders across your storage</p>
+        <h1 className="text-3xl font-bold tracking-tight">
+          <span className="text-gradient">{t('chat.title')}</span>
+        </h1>
+        <p className="mt-1 text-sm text-slate-400">{t('chat.subtitle')}</p>
       </div>
 
       {/* Search input */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+        <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-cyan-400/70" />
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name or path..."
+          placeholder={t('chat.placeholder')}
           autoFocus
-          className="w-full rounded-xl border border-slate-800 bg-slate-900 py-3 pl-11 pr-4 text-sm text-slate-200 placeholder-slate-500 outline-none transition-colors focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
+          className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-11 pr-4 text-sm text-slate-200 placeholder-slate-500 outline-none backdrop-blur transition-all focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
         />
         {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-blue-500" />
+          <Loader2 className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-cyan-400" />
         )}
       </div>
 
@@ -82,24 +85,24 @@ export function Chat() {
       ) : searched && results.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
           <SearchX className="h-10 w-10 text-slate-600" />
-          <p className="text-sm font-medium text-slate-400">No results found</p>
-          <p className="text-xs text-slate-600">Try a different search term</p>
+          <p className="text-sm font-medium text-slate-400">{t('chat.noResults')}</p>
+          <p className="text-xs text-slate-600">{t('chat.tryDifferent')}</p>
         </div>
       ) : results.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50">
-          <div className="border-b border-slate-800 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
-            {results.length} result{results.length !== 1 ? 's' : ''}
+        <div className="glass-panel overflow-hidden">
+          <div className="border-b border-white/10 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+            {t('chat.results', { n: results.length })}
           </div>
-          <ul className="divide-y divide-slate-800/50">
+          <ul className="divide-y divide-white/5">
             {results.map((item) => (
-              <li key={item.path} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-800/30">
+              <li key={item.path} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cyan-400/5">
                 <FileIcon name={item.name} isDir={item.isDir} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-200">{item.name}</p>
-                  <p className="truncate text-xs text-slate-500">{item.path}</p>
+                  <p className="truncate text-xs text-cyan-300/60">{item.path}</p>
                 </div>
                 <div className="hidden text-right sm:block">
-                  <p className="text-sm text-slate-400">{item.isDir ? 'Folder' : formatBytes(item.size)}</p>
+                  <p className="text-sm text-slate-400">{item.isDir ? t('chat.folder') : formatBytes(item.size)}</p>
                   <p className="text-xs text-slate-600">{timeAgo(item.modified)}</p>
                 </div>
               </li>
@@ -108,9 +111,12 @@ export function Chat() {
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          <Activity className="h-10 w-10 text-slate-600" />
-          <p className="text-sm font-medium text-slate-400">Search your files</p>
-          <p className="text-xs text-slate-600">Type a query above to find files and folders</p>
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5">
+            <Activity className="h-7 w-7 text-cyan-300/70" />
+            <span className="absolute inset-0 rounded-2xl bg-cyan-400/15 blur-md animate-glow" />
+          </div>
+          <p className="text-sm font-medium text-slate-400">{t('chat.searchYourFiles')}</p>
+          <p className="text-xs text-slate-600">{t('chat.typeQuery')}</p>
         </div>
       )}
     </div>

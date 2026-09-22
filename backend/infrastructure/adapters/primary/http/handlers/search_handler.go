@@ -23,14 +23,14 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query().Get("q")
-	limit := 50
+	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+		if parsed, err := strconv.Atoi(raw); err == nil {
 			limit = parsed
 		}
 	}
 
-	results, err := h.searchService.Execute(query, limit)
+	results, err := h.searchService.Execute(currentUser(r), query, limit)
 	if err != nil {
 		respondWithError(w, err)
 		return
