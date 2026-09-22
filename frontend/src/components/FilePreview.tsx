@@ -53,7 +53,7 @@ function renderMarkdown(src: string): string {
   let fenceLines: string[] = [];
 
   const flushFence = () => {
-    out.push(`<pre class="overflow-x-auto rounded-lg border border-white/10 bg-black/40 p-3 my-2 text-xs"><code>${escapeHtml(fenceLines.join('\n'))}</code></pre>`);
+    out.push(`<pre class="dark-surface overflow-x-auto rounded-lg border border-white/10 bg-black/40 p-3 my-2 text-xs text-slate-100"><code>${escapeHtml(fenceLines.join('\n'))}</code></pre>`);
     fenceLines = [];
   };
 
@@ -312,7 +312,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
-              className="h-full w-full resize-none rounded-lg border border-cyan-400/30 bg-[#05070f] p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-cyan-400/60 focus:ring-1 focus:ring-cyan-400/30"
+              className="dark-surface h-full w-full resize-none rounded-lg border border-cyan-400/30 bg-[#05070f] p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-cyan-400/60 focus:ring-1 focus:ring-cyan-400/30"
             />
           )}
 

@@ -53,12 +53,21 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
   const setTheme = useConfigStore((s) => s.setTheme);
   const [showConfig, setShowConfig] = useState(false);
 
-  // Apply the active theme to the <html> element so CSS variables switch.
+  // Resolve the effective theme (system follows the OS preference).
+  const resolvedTheme: 'light' | 'dark' =
+    theme === 'system'
+      ? window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light'
+        : 'dark'
+      : theme;
+
+  // Apply the active theme to the <html> element so CSS variables switch, and
+  // keep the browser chrome (address bar) in sync with the resolved theme.
   useEffect(() => {
-    const root = document.documentElement;
-    const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme;
-    root.classList.toggle('light', resolved === 'light');
-  }, [theme]);
+    document.documentElement.classList.toggle('light', resolvedTheme === 'light');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    meta?.setAttribute('content', resolvedTheme === 'light' ? '#f8fafc' : '#04050c');
+  }, [resolvedTheme]);
 
   const NAV_ITEMS: { key: Page; label: string; icon: LucideIcon }[] = [
     { key: 'files', label: t('nav.myFiles'), icon: FolderOpen },
@@ -107,7 +116,7 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
                 onClick={() => onNavigate(key)}
                 aria-current={isActive ? 'page' : undefined}
                 className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
-                  isActive ? 'text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
+                  isActive ? 'app-nav-active' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
                 }`}
               >
                 {isActive && (
@@ -201,17 +210,17 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
           <div className="flex items-center gap-2 px-1 pt-2">
             <div
               role="switch"
-              aria-checked={theme === 'light'}
+              aria-checked={resolvedTheme === 'light'}
               tabIndex={0}
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+              onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTheme(resolvedTheme === 'light' ? 'dark' : 'light'); }}
               className="relative h-4 w-8 cursor-pointer rounded-full border border-white/20 bg-white/10 transition-colors"
               aria-label={t('nav.theme')}
               title={t('nav.theme')}
             >
               <span
                 className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)] transition-all duration-300 ${
-                  theme === 'light' ? 'left-4' : 'left-0.5'
+                  resolvedTheme === 'light' ? 'left-4' : 'left-0.5'
                 }`}
               />
             </div>

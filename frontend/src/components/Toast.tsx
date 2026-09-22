@@ -17,7 +17,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-md animate-slide-in ${
+            className={`dark-surface flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-md animate-slide-in ${
               toast.type === 'success'
                 ? 'border-emerald-500/30 bg-emerald-950/80 text-emerald-200'
                 : toast.type === 'error'

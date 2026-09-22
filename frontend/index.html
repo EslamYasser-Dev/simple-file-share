@@ -5,6 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#04050c" />
+    <script>
+      // Apply the persisted or system theme before first paint so there is no
+      // flash of the wrong theme. Mirrors the logic in store/configStore.ts.
+      (function () {
+        try {
+          var stored = localStorage.getItem('fs_theme');
+          var light =
+            stored === 'light' ||
+            (stored !== 'dark' &&
+              window.matchMedia('(prefers-color-scheme: light)').matches);
+          var root = document.documentElement;
+          if (light) root.classList.add('light');
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', light ? '#f8fafc' : '#04050c');
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

@@ -68,6 +68,15 @@
     transition-duration: 200ms;
   }
 
+  /* Let native controls (scrollbars, forms, autofill) follow the active theme. */
+  html {
+    color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
   /* Dark mode (default) */
   html:not(.light),
   html:not(.light) body,
@@ -91,6 +100,7 @@
     --color-neon-cyan-rgb: 8, 145, 178;
     --color-neon-violet-rgb: 139, 92, 246;
     --color-neon-fuchsia-rgb: 217, 70, 239;
+    color: #0f172a;
   }
 
   body {
@@ -118,6 +128,22 @@
   ::selection {
     background: rgba(34, 211, 238, 0.3);
     color: #ffffff;
+  }
+
+  html.light ::selection {
+    background: rgba(8, 145, 178, 0.22);
+    color: #0f172a;
+  }
+
+  /* Respect users who prefer reduced motion: settle results instantly. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 
   button {
@@ -223,4 +249,132 @@
     color: transparent;
     animation: var(--animate-shimmer);
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Light theme overrides
+ *
+ * The component layer directly uses "light ink on dark glass" utilities, so
+ * a single source of truth below remaps every dark-surface class under
+ * html.light. These rules are intentionally un-layered (they beat Tailwind's
+ * layered utilities) and scoped to html.light so the dark theme is untouched.
+ * ------------------------------------------------------------------------- */
+
+html.light {
+  /* Glass surfaces: translucent white panels with soft ambient shadows. */
+  .glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border-color: rgba(15, 23, 42, 0.08);
+  }
+
+  .glass-panel {
+    background: linear-gradient(165deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.55));
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border-color: rgba(15, 23, 42, 0.09);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.7) inset,
+      0 8px 32px -12px rgba(15, 23, 42, 0.18);
+  }
+
+  .card-hover:hover {
+    border-color: rgba(8, 145, 178, 0.35);
+    box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.12), 0 12px 40px -18px rgba(8, 145, 178, 0.35);
+  }
+
+  .grid-overlay {
+    background-image:
+      linear-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+  }
+
+  .text-gradient {
+    background-image: linear-gradient(100deg, #0891b2, #7c3aed 55%, #c026d3);
+  }
+
+  .neon-border {
+    background:
+      linear-gradient(var(--color-abyss), var(--color-abyss)) padding-box,
+      linear-gradient(120deg, rgba(8, 145, 178, 0.8), rgba(124, 58, 237, 0.8)) border-box;
+  }
+
+  /* Text scale: light ink becomes dark ink (and vice-versa for accents). */
+  .text-slate-100 { color: #0f172a; }
+  .text-slate-200 { color: #1e293b; }
+  .text-slate-300 { color: #334155; }
+  .text-slate-400 { color: #64748b; }
+  .hover\:text-white:hover { color: #0f172a; }
+  .hover\:text-slate-100:hover { color: #0f172a; }
+
+  .text-cyan-200 { color: #155e75; }
+  .text-cyan-300 { color: #0e7490; }
+  .text-cyan-400 { color: #0e7490; }
+  .text-cyan-300\/60 { color: rgba(14, 116, 144, 0.6); }
+  .text-cyan-300\/70 { color: rgba(14, 116, 144, 0.7); }
+  .text-cyan-400\/70 { color: rgba(14, 116, 144, 0.7); }
+  .group-hover\:text-cyan-300:hover { color: #0e7490; }
+
+  .text-violet-300 { color: #7c3aed; }
+  .text-red-200 { color: #991b1b; }
+  .text-red-300 { color: #b91c1c; }
+  .text-red-400 { color: #dc2626; }
+  .text-amber-200 { color: #78350f; }
+  .text-amber-300 { color: #92400e; }
+  .text-amber-400 { color: #b45309; }
+  .text-emerald-200 { color: #065f46; }
+  .text-emerald-300 { color: #047857; }
+  .text-emerald-400 { color: #059669; }
+
+  /* Surfaces: translucent white fills become translucent dark ink. */
+  .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05); }
+  .bg-white\/10 { background-color: rgba(15, 23, 42, 0.09); }
+  .bg-white\/30 { background-color: rgba(15, 23, 42, 0.24); }
+  .bg-white { background-color: #f8fafc; }
+  .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.07); }
+  .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.11); }
+
+  .border-white\/10 { border-color: rgba(15, 23, 42, 0.12); }
+  .border-white\/20 { border-color: rgba(15, 23, 42, 0.16); }
+  .hover\:border-white\/10:hover { border-color: rgba(15, 23, 42, 0.16); }
+
+  /* Status dots / toggles stay vivid on light surfaces. */
+  .bg-cyan-300 { background-color: #06b6d4; }
+  .bg-cyan-400 { background-color: #0891b2; }
+
+  /* Accent borders/rings stay cyan but shift to a light-mode shade. */
+  .border-cyan-400\/40 { border-color: rgba(14, 116, 144, 0.4); }
+  .border-cyan-400\/50 { border-color: rgba(14, 116, 144, 0.5); }
+  .border-cyan-400\/60 { border-color: rgba(14, 116, 144, 0.6); }
+  .ring-cyan-400\/30 { --tw-ring-color: rgba(14, 116, 144, 0.35); }
+
+  /* Focus rings must stay visible on a light surface. */
+  .focus\:ring-cyan-400\/30:focus {
+    --tw-ring-color: rgba(14, 116, 144, 0.35);
+  }
+  .focus\:border-cyan-400\/50:focus,
+  .focus\:border-cyan-400\/60:focus {
+    border-color: rgba(14, 116, 144, 0.55);
+  }
+
+  /* Active sidebar item: the ink must invert on its subtle tint overlay. */
+  .app-nav-active { color: #0f172a; }
+}
+
+/* Active sidebar item, dark theme default. */
+.app-nav-active { color: #f8fafc; }
+
+/* Dark code surfaces that must stay dark (and light-inked) in light mode:
+   markdown editor, rendered code blocks, and toast pills. */
+html.light .dark-surface,
+html.light .dark-surface.text-slate-100,
+html.light .dark-surface.text-slate-200,
+html.light .dark-surface.text-slate-300,
+html.light .dark-surface.text-emerald-200,
+html.light .dark-surface.text-red-200,
+html.light .dark-surface.text-sky-200,
+html.light .dark-surface .text-slate-100,
+html.light .dark-surface .text-slate-200 {
+  color: #e2e8f0;
 }
