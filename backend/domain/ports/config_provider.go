@@ -15,4 +15,7 @@ type ConfigProvider interface {
 	EnableAuth() bool
 	// EnableSignup toggles public self-registration via POST /api/auth/register.
 	EnableSignup() bool
+	// GetDefaultQuotaBytes is the storage quota given to newly registered
+	// accounts. 0 means unlimited.
+	GetDefaultQuotaBytes() int64
 }

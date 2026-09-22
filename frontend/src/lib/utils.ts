@@ -34,12 +34,12 @@ export function timeAgo(iso: string): string {
   if (Number.isNaN(date.getTime())) return '—';
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   const units: [number, string][] = [
-    [60, 's'],
     [60, 'm'],
-    [24, 'h'],
-    [7, 'd'],
-    [4.35, 'w'],
-    [12, 'mo'],
+    [60, 'h'],
+    [24, 'd'],
+    [7, 'w'],
+    [4.35, 'mo'],
+    [12, 'y'],
   ];
   let value = seconds;
   let unit = 's';

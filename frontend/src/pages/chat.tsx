@@ -6,6 +6,8 @@ import { FileIcon } from '../components/FileIcon';
 import { useI18n } from '../i18n';
 import { formatBytes, timeAgo } from '../lib/utils';
 
+let searchSeq = 0;
+
 export function Chat() {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
@@ -17,7 +19,9 @@ export function Chat() {
 
   const handleSearch = useCallback(async (q: string) => {
     const trimmed = q.trim();
+    const seq = ++searchSeq;
     if (!trimmed) {
+      if (seq !== searchSeq) return;
       setResults([]);
       setSearched(false);
       return;
@@ -26,15 +30,17 @@ export function Chat() {
     setError(null);
     try {
       const { data, error: err } = await api.searchFiles(trimmed);
+      if (seq !== searchSeq) return;
       if (err) throw new Error(err);
       setResults(data || []);
       setSearched(true);
     } catch (e) {
+      if (seq !== searchSeq) return;
       setError(e instanceof Error ? e.message : t('chat.searchFailed'));
       setResults([]);
       setSearched(true);
     } finally {
-      setIsLoading(false);
+      if (seq === searchSeq) setIsLoading(false);
     }
   }, [t]);
 

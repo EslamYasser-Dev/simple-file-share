@@ -17,11 +17,12 @@ const minPasswordLength = 4
 // RegisterUserService creates new accounts. The first account ever created
 // becomes an admin.
 type RegisterUserService struct {
-	users         ports.UserRepository
-	hasher        ports.PasswordHasher
-	fileRepo      ports.FileRepository
-	scoper        ports.PathScoper
-	signupEnabled bool
+	users             ports.UserRepository
+	hasher            ports.PasswordHasher
+	fileRepo          ports.FileRepository
+	scoper            ports.PathScoper
+	signupEnabled     bool
+	defaultQuotaBytes int64
 }
 
 func NewRegisterUserService(
@@ -30,13 +31,15 @@ func NewRegisterUserService(
 	fileRepo ports.FileRepository,
 	scoper ports.PathScoper,
 	signupEnabled bool,
+	defaultQuotaBytes int64,
 ) *RegisterUserService {
 	return &RegisterUserService{
-		users:         users,
-		hasher:        hasher,
-		fileRepo:      fileRepo,
-		scoper:        scoper,
-		signupEnabled: signupEnabled,
+		users:             users,
+		hasher:            hasher,
+		fileRepo:          fileRepo,
+		scoper:            scoper,
+		signupEnabled:     signupEnabled,
+		defaultQuotaBytes: defaultQuotaBytes,
 	}
 }
 
@@ -64,6 +67,7 @@ func (s *RegisterUserService) Execute(username, password string) (*models.User, 
 		Username:     username,
 		PasswordHash: hash,
 		IsAdmin:      false,
+		QuotaBytes:   s.defaultQuotaBytes,
 		CreatedAt:    time.Now().UTC(),
 	}
 

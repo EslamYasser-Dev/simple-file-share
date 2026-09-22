@@ -23,7 +23,7 @@ func newRegisterHandler(t *testing.T, signupEnabled bool) (*RegisterHandler, *fs
 	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
 	userRepo := fs.NewUserFileRepository(dir)
 	hasher := auth.NewPBKDF2Hasher()
-	service := services.NewRegisterUserService(userRepo, hasher, fileRepo, policy.NewPathScoper(), signupEnabled)
+	service := services.NewRegisterUserService(userRepo, hasher, fileRepo, policy.NewPathScoper(), signupEnabled, 0)
 	return NewRegisterHandler(service), userRepo
 }
 
@@ -69,8 +69,14 @@ func TestRegisterHandlerDisabled(t *testing.T) {
 }
 
 func TestMeHandlerWithoutUserIsSystemAdmin(t *testing.T) {
+	dir := t.TempDir()
+	index := memory.NewFileIndexRepository()
+	scoper := policy.NewPathScoper()
+	userRepo := fs.NewUserFileRepository(dir)
+	handler := NewMeHandler(services.NewUserInfoService(userRepo, index, scoper))
+
 	rec := httptest.NewRecorder()
-	NewMeHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/me", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/me", nil))
 
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -82,10 +88,16 @@ func TestMeHandlerWithoutUserIsSystemAdmin(t *testing.T) {
 }
 
 func TestMeHandlerWithUser(t *testing.T) {
+	dir := t.TempDir()
+	index := memory.NewFileIndexRepository()
+	scoper := policy.NewPathScoper()
+	userRepo := fs.NewUserFileRepository(dir)
+	handler := NewMeHandler(services.NewUserInfoService(userRepo, index, scoper))
+
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob"}))
 	rec := httptest.NewRecorder()
-	NewMeHandler().ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {

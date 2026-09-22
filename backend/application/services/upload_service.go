@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"io"
 	"path"
 
@@ -11,16 +12,19 @@ import (
 )
 
 // UploadService stores one or more uploaded parts into the caller's namespace.
-// It owns the upload policy: per-request size cap, destination resolution and
-// the "empty-name parts are skipped" rule, so the primary adapters stay thin.
+// It owns the upload policy: per-request size cap, per-account storage quota,
+// destination resolution and the "empty-name parts are skipped" rule, so the
+// primary adapters stay thin.
 type UploadService struct {
 	fileRepo ports.FileRepository
 	scoper   ports.PathScoper
+	index    ports.FileIndexRepository
+	users    ports.UserRepository
 	maxBytes int64 // <= 0 means unlimited
 }
 
-func NewUploadService(fileRepo ports.FileRepository, scoper ports.PathScoper, maxBytes int64) *UploadService {
-	return &UploadService{fileRepo: fileRepo, scoper: scoper, maxBytes: maxBytes}
+func NewUploadService(fileRepo ports.FileRepository, scoper ports.PathScoper, index ports.FileIndexRepository, users ports.UserRepository, maxBytes int64) *UploadService {
+	return &UploadService{fileRepo: fileRepo, scoper: scoper, index: index, users: users, maxBytes: maxBytes}
 }
 
 func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([]models.FileUpload, error) {
@@ -31,6 +35,10 @@ func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([
 		remaining = -1
 	}
 	budget := &byteBudget{remaining: remaining}
+	qb, err := s.newQuotaBudget(user)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, part := range parts {
 		if part.Content == nil {
@@ -62,19 +70,30 @@ func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([
 			continue
 		}
 
+		// A fully exhausted account is rejected before touching the filesystem,
+		// so an existing file is never truncated by an over-quota write.
+		if qb != nil && qb.remaining <= 0 {
+			part.Content.Close()
+			execErrors = append(execErrors, &domainerrors.QuotaExceededError{Action: "upload", Path: part.Name})
+			continue
+		}
+
 		if err := s.ensureParent(physical); err != nil {
 			part.Content.Close()
 			execErrors = append(execErrors, err)
 			continue
 		}
 
-		written, writeErr := s.fileRepo.WriteFile(physical, budget.limited(part.Content))
+		written, writeErr := s.fileRepo.WriteFile(physical, limited(part.Content, budget, qb))
 		part.Content.Close()
-		if budget.exceeded {
+		switch {
+		case qb != nil && qb.exceeded:
+			execErrors = append(execErrors, &domainerrors.QuotaExceededError{Action: "upload", Path: part.Name})
+			continue
+		case budget.exceeded:
 			execErrors = append(execErrors, domainerrors.NewValidationError("files", nil, "upload exceeds size limit"))
 			continue
-		}
-		if writeErr != nil {
+		case writeErr != nil:
 			execErrors = append(execErrors, writeErr)
 			continue
 		}
@@ -102,6 +121,46 @@ func (s *UploadService) ensureParent(physical string) error {
 		return nil
 	}
 	return s.fileRepo.CreateDirectory(dir)
+}
+
+// newQuotaBudget returns the per-account storage budget for this request: the
+// account's quota minus its current usage. It returns nil when the account is
+// unlimited or when there is no account (system view).
+func (s *UploadService) newQuotaBudget(user *models.User) (*byteBudget, error) {
+	if user == nil {
+		return nil, nil
+	}
+	quota, err := s.users.GetQuotaBytes(user.Username)
+	if err != nil {
+		// A vanished account record has no quota to enforce.
+		if errors.Is(err, domainerrors.ErrUserNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if quota <= 0 {
+		return nil, nil
+	}
+	_, used, err := s.index.PrefixStats(s.scoper.PrivatePrefix(user.Username))
+	if err != nil {
+		return nil, err
+	}
+	remaining := quota - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	return &byteBudget{remaining: remaining}, nil
+}
+
+// limited wraps content with every active budget (request size cap first,
+// account quota second). A nil budget is ignored.
+func limited(rc io.ReadCloser, budgets ...*byteBudget) io.ReadCloser {
+	for _, b := range budgets {
+		if b != nil {
+			rc = b.limited(rc)
+		}
+	}
+	return rc
 }
 
 // byteBudget tracks the remaining upload allowance across every part of a

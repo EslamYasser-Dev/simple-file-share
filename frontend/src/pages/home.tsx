@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
-import { buildUrl, authHeader, clearCredentials } from '../services/api';
+import { buildUrl, authHeader, clearCredentials, api } from '../services/api';
 import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { FilePreview } from '../components/FilePreview';
@@ -21,11 +21,14 @@ export function Home() {
   const currentPath = useFileStore((s) => s.currentPath);
   const scope = useFileStore((s) => s.scope);
   const isLoading = useFileStore((s) => s.isLoading);
+  const loadError = useFileStore((s) => s.error);
   const fetchFiles = useFileStore((s) => s.fetchFiles);
   const navigateTo = useFileStore((s) => s.navigateTo);
   const uploadFiles = useFileStore((s) => s.uploadFiles);
   const deleteItem = useFileStore((s) => s.deleteItem);
   const isAdmin = useAuthStore((s) => s.user?.isAdmin ?? false);
+  const account = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const isShared = scope === 'shared';
   const readOnly = isShared && !isAdmin;
@@ -67,20 +70,27 @@ export function Home() {
       return;
     }
     success(t('home.uploaded', { n: uploaded }));
+    void refreshAccountUsage();
+  };
+
+  const refreshAccountUsage = async () => {
+    if (!account) return;
+    const result = await api.me();
+    if (result.data) setUser(result.data);
   };
 
   const handleDelete = async (item: FileItem) => {
     setDeleteTarget(null);
-    startTransition(() => {
+    startTransition(async () => {
       removeOptimistic(item.path);
+      const result = await deleteItem(item.path);
+      if (result.error) {
+        error(result.error);
+        await fetchFiles(currentPath);
+        return;
+      }
+      success(t('home.deleted', { name: item.name }));
     });
-    const result = await deleteItem(item.path);
-    if (result.error) {
-      error(result.error);
-      await fetchFiles(currentPath);
-      return;
-    }
-    success(t('home.deleted', { name: item.name }));
   };
 
   const handleDownload = async (item: FileItem) => {
@@ -104,9 +114,17 @@ export function Home() {
 
       // Modern streaming save (Chromium-based browsers)
       if ('showSaveFilePicker' in window) {
-        const handle = await (window as unknown as { showSaveFilePicker: (options: { suggestedName: string }) => Promise<FileSystemFileHandle> }).showSaveFilePicker({ suggestedName });
-        const writable = await handle.createWritable();
-        await response.body!.pipeTo(writable);
+        try {
+          const handle = await (window as unknown as { showSaveFilePicker: (options: { suggestedName: string }) => Promise<FileSystemFileHandle> }).showSaveFilePicker({ suggestedName });
+          const writable = await handle.createWritable();
+          await response.body!.pipeTo(writable);
+        } catch (e) {
+          const err = e as DOMException;
+          if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+            return;
+          }
+          throw e;
+        }
         success(t('home.downloadComplete'));
         return;
       }
@@ -118,7 +136,8 @@ export function Home() {
       a.href = blobUrl;
       a.download = suggestedName;
       a.click();
-      URL.revokeObjectURL(blobUrl);
+      // Keep the object URL alive until the download engine has started.
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
       success(t('home.downloadComplete'));
     } catch (e) {
       error(e instanceof Error ? e.message : t('home.downloadFailed'));
@@ -176,6 +195,13 @@ export function Home() {
             {t('home.items', { n: files.length })}
             {totalSize > 0 && ` · ${t('home.totalSize', { size: formatBytes(totalSize) })}`}
           </p>
+          {account && account.quotaBytes && account.quotaBytes > 0 ? (
+            <StorageUsage
+              used={account.size ?? 0}
+              quota={account.quotaBytes}
+              files={account.files ?? 0}
+            />
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -280,6 +306,18 @@ export function Home() {
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
             <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
             <p className="text-sm">{t('home.loadingFiles')}</p>
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
+            <p className="text-sm font-medium text-slate-300">{loadError}</p>
+            <button
+              onClick={() => fetchFiles(currentPath)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-cyan-400/40 hover:text-white"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('common.retry')}
+            </button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
@@ -413,6 +451,43 @@ export function Home() {
           </button>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+interface StorageUsageProps {
+  used: number;
+  quota: number;
+  files: number;
+}
+
+/** Account-level storage gauge shown when the account has a quota. */
+function StorageUsage({ used, quota, files }: StorageUsageProps) {
+  const { t } = useI18n();
+  const pct = quota > 0 ? Math.min(100, (used / quota) * 100) : 0;
+  const nearLimit = pct >= 90;
+  return (
+    <div className="mt-3 max-w-xs" title={`${formatBytes(used)} / ${formatBytes(quota)}`}>
+      <div className="flex items-center justify-between text-[11px] tabular-nums">
+        <span className="text-slate-400">
+          {t('home.storageUsed', {
+            used: formatBytes(used),
+            quota: formatBytes(quota),
+            files,
+          })}
+        </span>
+        <span className={nearLimit ? 'font-semibold text-amber-300' : 'text-cyan-300'}>
+          {Math.round(pct)}%
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${
+            nearLimit ? 'bg-amber-400' : 'bg-gradient-to-r from-cyan-300 via-sky-400 to-violet-400'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

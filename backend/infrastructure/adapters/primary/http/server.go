@@ -30,6 +30,7 @@ type RouteHandlers struct {
 	Me         http.Handler
 	AuthInfo   http.Handler
 	AdminUsers http.Handler
+	AdminQuota http.Handler
 	Shares     http.Handler
 	Share      http.Handler
 	Health     http.Handler
@@ -168,6 +169,7 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
 	mux.Handle("/api/auth/me", apiChain(s.handlers.Me))
 	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUsers))
+	mux.Handle("/api/admin/users/{username}/quota", apiChain(s.handlers.AdminQuota))
 	mux.Handle("/api/shares", apiChain(s.handlers.Shares))
 
 	// Public auth endpoints (no credentials required).

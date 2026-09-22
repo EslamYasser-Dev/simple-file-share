@@ -13,6 +13,10 @@ export interface UploadResult {
 /** Module-level handle to the in-flight upload so `cancelUpload` can abort it. */
 let activeUploadController: AbortController | null = null;
 
+let uploadBatchSeq = 0;
+
+let listSeq = 0;
+
 /** Live metadata for one file in the batch currently being uploaded. */
 export interface ActiveUploadFile {
   name: string;
@@ -36,7 +40,7 @@ export type FileScope = 'files' | 'shared';
 /** Translate a browser-relative path into the virtual path the API expects. */
 function scopePath(scope: FileScope, path: string): string {
   if (scope !== 'shared') return path;
-  return path ? `shared/${path}` : 'shared';
+  return path ? path : 'shared';
 }
 
 function hasDuplicate(values: string[]): boolean {
@@ -115,15 +119,18 @@ export const useFileStore = create<FileState>()((set, get) => ({
 
   fetchFiles: async (path = '') => {
     const { scope } = get();
+    const seq = ++listSeq;
     set({ isLoading: true, error: null });
     try {
       const { data, error } = await api.listFiles(scopePath(scope, path));
       if (error) throw new Error(error);
+      if (seq !== listSeq) return;
       set({ files: data || [], currentPath: path });
     } catch (e) {
+      if (seq !== listSeq) return;
       set({ error: e instanceof Error ? e.message : 'Failed to load files' });
     } finally {
-      set({ isLoading: false });
+      if (seq === listSeq) set({ isLoading: false });
     }
   },
 
@@ -168,16 +175,18 @@ export const useFileStore = create<FileState>()((set, get) => ({
 
     const target = path ?? get().currentPath;
     const { scope } = get();
+    const destination = scopePath(scope, target);
 
+    const batchId = ++uploadBatchSeq;
     const controller = new AbortController();
     activeUploadController = controller;
 
     // Upload distinct destinations concurrently, but keep duplicate target
     // paths sequential so concurrent writes cannot race on the same file.
-    const destinations = files.map((file) =>
-      scopePath(scope, target ? `${target}/${file.name}` : file.name),
+    const finalPaths = files.map((file) =>
+      destination ? `${destination}/${file.name}` : file.name,
     );
-    const concurrency = hasDuplicate(destinations)
+    const concurrency = hasDuplicate(finalPaths)
       ? 1
       : Math.min(useConfigStore.getState().maxConcurrentUploads, files.length);
 
@@ -241,7 +250,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
       publish();
 
       try {
-        const result = await api.uploadFile(files[index], destinations[index], {
+        const result = await api.uploadFile(files[index], destination, {
           signal: controller.signal,
           onProgress: (loaded) => {
             loadedBytes[index] = loaded;
@@ -285,7 +294,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
         Array.from({ length: Math.min(concurrency, files.length) }, () => worker()),
       );
       if (userCancelled) {
-        return { uploaded: 0, cancelled: true };
+        return { uploaded: completedCount, cancelled: true };
       }
       if (firstError) {
         throw firstError;
@@ -295,13 +304,15 @@ export const useFileStore = create<FileState>()((set, get) => ({
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Upload failed';
       if (message === 'Upload cancelled') {
-        return { uploaded: 0, cancelled: true };
+        return { uploaded: completedCount, cancelled: true };
       }
       set({ error: message });
       return { uploaded: 0, error: message };
     } finally {
-      activeUploadController = null;
-      set({ uploadProgress: 0, uploadSpeed: 0, isUploading: false, activeUpload: null });
+      if (batchId === uploadBatchSeq) {
+        activeUploadController = null;
+        set({ uploadProgress: 0, uploadSpeed: 0, isUploading: false, activeUpload: null });
+      }
     }
   },
 

@@ -26,7 +26,7 @@ func newUserFixture(t *testing.T, signupEnabled bool) (*RegisterUserService, *fs
 	hasher := auth.NewPBKDF2Hasher()
 	scoper := policy.NewPathScoper()
 
-	register := NewRegisterUserService(userRepo, hasher, fileRepo, scoper, signupEnabled)
+	register := NewRegisterUserService(userRepo, hasher, fileRepo, scoper, signupEnabled, 0)
 	seed := NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
 	return register, userRepo, fileRepo, seed
 }

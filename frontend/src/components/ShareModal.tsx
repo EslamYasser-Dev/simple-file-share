@@ -59,7 +59,11 @@ export function ShareModal({ item, onClose }: ShareModalProps) {
   }, [itemPath, error]);
 
   useEffect(() => {
-    if (item) void refresh();
+    if (!item) return;
+    setLinks([]);
+    setPendingRevoke(null);
+    setCopiedToken(null);
+    void refresh();
   }, [item, refresh]);
 
   const selected = useMemo(
@@ -109,7 +113,7 @@ export function ShareModal({ item, onClose }: ShareModalProps) {
   const hint = item?.isDir ? t('share.linkHint') : t('share.hint');
 
   return (
-    <Modal open={item !== null} onClose={onClose} title={t('share.title', { name: item?.name ?? '' })}>
+    <Modal open={item !== null} onClose={onClose} title={t('share.title', { name: item?.name ?? '' })} size="lg">
       <div className="space-y-5">
         <p className="text-sm text-slate-400">{hint}</p>
 

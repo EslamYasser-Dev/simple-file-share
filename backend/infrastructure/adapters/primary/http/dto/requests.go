@@ -29,3 +29,10 @@ type UpdateContentRequest struct {
 type RevokeShareRequest struct {
 	Token string `json:"token"`
 }
+
+// SetQuotaRequest is the body of PUT /api/admin/users/{username}/quota. Quota
+// accepts a byte count or a human size ("2GB"); "0" or "unlimited" removes the
+// cap.
+type SetQuotaRequest struct {
+	Quota string `json:"quota"`
+}

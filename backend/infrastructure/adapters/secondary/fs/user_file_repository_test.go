@@ -74,3 +74,40 @@ func TestUserFileRepositoryPersists(t *testing.T) {
 		t.Errorf("reloaded users = %+v", users)
 	}
 }
+
+func TestUserFileRepositoryQuotaRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewUserFileRepository(dir)
+	if err := repo.CreateUser(&models.User{Username: "quota", PasswordHash: "h", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := repo.GetQuotaBytes("quota")
+	if err != nil || q != 0 {
+		t.Fatalf("GetQuotaBytes() = %d, %v; want 0, nil", q, err)
+	}
+
+	const quota = 2 << 30
+	if err := repo.SetQuotaBytes("quota", quota); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := NewUserFileRepository(dir)
+	q, err = reloaded.GetQuotaBytes("quota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q != quota {
+		t.Errorf("GetQuotaBytes after reload = %d, want %d", q, quota)
+	}
+}
+
+func TestUserFileRepositoryQuotaMissingUser(t *testing.T) {
+	repo := NewUserFileRepository(t.TempDir())
+	if _, err := repo.GetQuotaBytes("nobody"); !errors.Is(err, domainerrors.ErrUserNotFound) {
+		t.Errorf("GetQuotaBytes err = %v, want ErrUserNotFound", err)
+	}
+	if err := repo.SetQuotaBytes("nobody", 100); !errors.Is(err, domainerrors.ErrUserNotFound) {
+		t.Errorf("SetQuotaBytes err = %v, want ErrUserNotFound", err)
+	}
+}

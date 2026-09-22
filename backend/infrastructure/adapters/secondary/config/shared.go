@@ -12,6 +12,10 @@ const (
 	// defaultMaxUploadBytes = 0 means unlimited: uploads are only bounded by
 	// available disk space. Set MAX_UPLOAD_BYTES (e.g. "2GB", "500MB") to cap.
 	defaultMaxUploadBytes int64 = 0
+	// defaultDefaultQuotaBytes = 0 means newly registered accounts are
+	// unlimited. Set QUOTA_DEFAULT_BYTES (e.g. "100MB") to give every new
+	// account a storage quota.
+	defaultDefaultQuotaBytes int64 = 0
 	// devStorageDirName is the dedicated, app-owned directory created under the
 	// working directory when ROOT_DIR is unset in development. Storage must never
 	// default to the working directory itself or a source folder (e.g.
@@ -72,9 +76,19 @@ func resolveEnableGRPC() bool {
 // number of bytes or a human size such as "500MB", "2GB", "1TB". A value of 0,
 // "unlimited", or an unparseable value means no limit.
 func resolveMaxUploadBytes() int64 {
-	raw := strings.TrimSpace(os.Getenv("MAX_UPLOAD_BYTES"))
+	return resolveSizeEnv("MAX_UPLOAD_BYTES", defaultMaxUploadBytes)
+}
+
+// resolveDefaultQuotaBytes parses QUOTA_DEFAULT_BYTES with the same rules as
+// resolveMaxUploadBytes. 0 means newly registered accounts are unlimited.
+func resolveDefaultQuotaBytes() int64 {
+	return resolveSizeEnv("QUOTA_DEFAULT_BYTES", defaultDefaultQuotaBytes)
+}
+
+func resolveSizeEnv(key string, fallback int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
-		return defaultMaxUploadBytes
+		return fallback
 	}
 	lower := strings.ToLower(raw)
 	if lower == "unlimited" || lower == "0" || lower == "0b" {
@@ -89,7 +103,7 @@ func resolveMaxUploadBytes() int64 {
 	if n, ok := parseSize(raw); ok {
 		return n
 	}
-	return defaultMaxUploadBytes
+	return fallback
 }
 
 // parseSize converts a human size (e.g. "2GB", "512MB", "10TB") to bytes.

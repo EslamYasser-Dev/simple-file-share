@@ -49,6 +49,23 @@ func TestResolveMaxUploadBytes(t *testing.T) {
 	}
 }
 
+func TestResolveDefaultQuotaBytes(t *testing.T) {
+	t.Setenv("QUOTA_DEFAULT_BYTES", "")
+	if got := resolveDefaultQuotaBytes(); got != 0 {
+		t.Fatalf("default quota should be unlimited, got %d", got)
+	}
+
+	t.Setenv("QUOTA_DEFAULT_BYTES", "100MB")
+	if got := resolveDefaultQuotaBytes(); got != 100<<20 {
+		t.Fatalf("resolveDefaultQuotaBytes(\"100MB\") = %d", got)
+	}
+
+	t.Setenv("QUOTA_DEFAULT_BYTES", "unlimited")
+	if got := resolveDefaultQuotaBytes(); got != 0 {
+		t.Fatalf("resolveDefaultQuotaBytes(\"unlimited\") = %d, want 0", got)
+	}
+}
+
 func TestEnvConfigProvider(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("ROOT_DIR", t.TempDir())

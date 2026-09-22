@@ -8,9 +8,17 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Panel width preset. */
+  size?: 'sm' | 'md' | 'lg';
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+const WIDTHS: Record<NonNullable<ModalProps['size']>, string> = {
+  sm: 'max-w-sm',
+  md: 'max-w-md',
+  lg: 'max-w-xl',
+};
+
+export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
   const { t } = useI18n();
 
   useEffect(() => {
@@ -30,14 +38,14 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       onClick={onClose}
     >
       <div
-        className="glass-panel w-full max-w-md p-6"
+        className={`glass-panel w-full ${WIDTHS[size]} max-h-[90vh] overflow-y-auto p-6`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-lg font-semibold text-slate-100">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+            className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
             aria-label={t('common.close')}
           >
             <X className="h-5 w-5" />

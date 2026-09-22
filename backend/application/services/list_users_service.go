@@ -36,11 +36,12 @@ func (s *ListUsersService) Execute(user *models.User) ([]models.UserStats, error
 			return nil, err
 		}
 		stats = append(stats, models.UserStats{
-			Username:  u.Username,
-			IsAdmin:   u.IsAdmin,
-			CreatedAt: u.CreatedAt,
-			Files:     files,
-			Size:      size,
+			Username:   u.Username,
+			IsAdmin:    u.IsAdmin,
+			QuotaBytes: u.QuotaBytes,
+			CreatedAt:  u.CreatedAt,
+			Files:      files,
+			Size:       size,
 		})
 	}
 	return stats, nil

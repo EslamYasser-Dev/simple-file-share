@@ -4,6 +4,7 @@ on:
   push:
     branches: [ "master", "main", "enhancements" ]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -97,8 +98,23 @@ jobs:
       - name: Test
         run: npm run test --if-present
 
-      - name: Build
-        run: npm run build --if-present
+      # The build is shared by every deployment path below (Actions-based
+      # Pages deploy, PR previews, and the gh-pages branch), so it must be
+      # baked with the GitHub Pages base path. VITE_API_URL is optional at
+      # build time (empty = same-origin) and only enforced before the
+      # production deployment.
+      - name: Build (with Pages base path)
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          base="${{ vars.VITE_BASE_PATH }}"
+          [ -n "$base" ] || base="/${{ github.event.repository.name }}/"
+          VITE_BASE_PATH="$base" npm run build --if-present
+
+      - name: Add SPA fallback and disable Jekyll
+        run: |
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
 
       - name: Upload frontend build
         if: success()
@@ -128,3 +144,108 @@ jobs:
           tags: simple-file-share:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Production deployment to GitHub Pages (Actions source). Requires the
+  # repository variable VITE_API_URL pointing at the hosted backend.
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push' && contains(fromJson('["master","main","enhancements"]'), github.ref_name)
+    needs: frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages-deploy-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Require VITE_API_URL
+        run: |
+          if [ -z "${{ vars.VITE_API_URL }}" ]; then
+            echo "::error::Set the repository variable VITE_API_URL to the deployed backend origin (Settings > Secrets and variables > Actions > Variables) before relying on GitHub Pages."
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # PR preview on GitHub Pages: the latest pushed commit of each pull request
+  # is deployed so reviewers can open the built UI. Fork PRs are skipped
+  # because they cannot obtain the Pages/ID-token permissions.
+  deploy-pages-preview:
+    name: Preview on GitHub Pages (PR)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages-preview
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Legacy backup: force-push the built UI to the gh-pages branch on every
+  # push, for repositories configured with Pages source "Deploy from a
+  # branch". Ignored when the Pages source is "GitHub Actions".
+  publish-gh-pages:
+    name: Publish to gh-pages branch
+    if: github.event_name == 'push'
+    needs: frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Push to gh-pages branch
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/gh-pages
+          mkdir -p /tmp/gh-pages
+          cp -r frontend/dist/* /tmp/gh-pages/
+          cd /tmp/gh-pages
+          git init -q
+          git -c init.defaultBranch=gh-pages checkout -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions" -c user.email="actions@github.com" commit -qm "deploy: frontend $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git push -f origin gh-pages

@@ -34,6 +34,15 @@ export function authHeader(): Record<string, string> {
   return cred ? { Authorization: `Basic ${cred}` } : {};
 }
 
+/** Tell the auth gate that the session is no longer accepted by the server. */
+function notifySessionExpired(): void {
+  try {
+    window.dispatchEvent(new CustomEvent('fs:unauthorized'));
+  } catch {
+    /* non-browser environment */
+  }
+}
+
 export interface FileItem {
   name: string;
   path: string;
@@ -47,11 +56,17 @@ export interface AuthUser {
   username: string;
   isAdmin: boolean;
   createdAt?: string;
+  /** Account storage quota in bytes; 0 or undefined means unlimited. */
+  quotaBytes?: number;
+  /** Bytes currently used by the account (from /me). */
+  size?: number;
+  files?: number;
 }
 
 export interface AdminUser extends AuthUser {
   files: number;
   size: number;
+  quotaBytes: number;
 }
 
 /** A public share link, as returned by the shares API. */
@@ -91,6 +106,7 @@ async function handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
   if (!response.ok) {
     if (response.status === 401) {
       clearCredentials();
+      notifySessionExpired();
       return { error: 'Invalid username or password', unauthorized: true };
     }
     const body = await response.text().catch(() => '');
@@ -135,6 +151,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<ApiResponse<
 function parseXhrResponse<T>(xhr: XMLHttpRequest): ApiResponse<T> {
   if (xhr.status === 401) {
     clearCredentials();
+    notifySessionExpired();
     return { error: 'Invalid username or password', unauthorized: true };
   }
   if (xhr.status < 200 || xhr.status >= 300) {
@@ -176,10 +193,10 @@ export const api = {
     } = {},
   ): Promise<ApiResponse<Array<{ path: string; size: number }>>> => {
     const formData = new FormData();
-    formData.append('file', file);
     if (path) {
       formData.append('path', path);
     }
+    formData.append('file', file);
 
     return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
@@ -286,6 +303,17 @@ export const api = {
   adminUsers: async (): Promise<ApiResponse<AdminUser[]>> =>
     request<AdminUser[]>(buildUrl('/api/admin/users'), { headers: authHeader() }),
 
+  /**
+   * Set an account's storage quota. Accepts a byte count, a human size
+   * ("2GB"), or "unlimited"; returns the updated account.
+   */
+  setQuota: async (username: string, quota: string): Promise<ApiResponse<AdminUser>> =>
+    request<AdminUser>(buildUrl(`/api/admin/users/${encodeURIComponent(username)}/quota`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ quota }),
+    }),
+
   // Public links
   //
   // Shared links are plain GET URLs anyone (even unauthenticated) can open, so
@@ -328,6 +356,7 @@ async function fetchBlob(endpoint: string, params: Record<string, string>): Prom
   if (!response.ok) {
     if (response.status === 401) {
       clearCredentials();
+      notifySessionExpired();
       throw new Error('Not authorized');
     }
     throw new Error(`Failed to load (${response.status})`);

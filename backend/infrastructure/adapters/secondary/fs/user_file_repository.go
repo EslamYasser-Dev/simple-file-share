@@ -36,6 +36,7 @@ type userDocument struct {
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"passwordHash"`
 	IsAdmin      bool      `json:"isAdmin"`
+	QuotaBytes   int64     `json:"quotaBytes,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
@@ -44,6 +45,7 @@ func (d userDocument) toUser() *models.User {
 		Username:     d.Username,
 		PasswordHash: d.PasswordHash,
 		IsAdmin:      d.IsAdmin,
+		QuotaBytes:   d.QuotaBytes,
 		CreatedAt:    d.CreatedAt,
 	}
 }
@@ -53,6 +55,7 @@ func namedDoc(u *models.User) userDocument {
 		Username:     u.Username,
 		PasswordHash: u.PasswordHash,
 		IsAdmin:      u.IsAdmin,
+		QuotaBytes:   u.QuotaBytes,
 		CreatedAt:    u.CreatedAt,
 	}
 }
@@ -113,6 +116,38 @@ func (r *UserFileRepository) CountUsers() (int, error) {
 		return 0, err
 	}
 	return len(docs), nil
+}
+
+func (r *UserFileRepository) GetQuotaBytes(username string) (int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return 0, err
+	}
+	doc, ok := docs[username]
+	if !ok {
+		return 0, domainerrors.ErrUserNotFound
+	}
+	return doc.QuotaBytes, nil
+}
+
+func (r *UserFileRepository) SetQuotaBytes(username string, quotaBytes int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return err
+	}
+	doc, ok := docs[username]
+	if !ok {
+		return domainerrors.ErrUserNotFound
+	}
+	doc.QuotaBytes = quotaBytes
+	docs[username] = doc
+	return r.saveLocked(docs)
 }
 
 func (r *UserFileRepository) loadLocked() (map[string]userDocument, error) {

@@ -38,11 +38,13 @@ func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, dto.FromUser(user))
 }
 
-// MeHandler reports the authenticated user's identity and role.
-type MeHandler struct{}
+// MeHandler reports the authenticated user's identity, role, and storage use.
+type MeHandler struct {
+	infoService *services.UserInfoService
+}
 
-func NewMeHandler() *MeHandler {
-	return &MeHandler{}
+func NewMeHandler(infoService *services.UserInfoService) *MeHandler {
+	return &MeHandler{infoService: infoService}
 }
 
 func (h *MeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,13 +53,12 @@ func (h *MeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := currentUser(r)
-	if user == nil {
-		// Auth disabled — expose the system view so the UI renders as admin.
-		respondJSON(w, http.StatusOK, dto.UserResponse{IsAdmin: true})
+	stats, err := h.infoService.Execute(currentUser(r))
+	if err != nil {
+		respondWithError(w, err)
 		return
 	}
-	respondJSON(w, http.StatusOK, dto.FromUser(user))
+	respondJSON(w, http.StatusOK, dto.FromUserStatsSingle(*stats))
 }
 
 // AuthInfoHandler reports runtime auth capabilities (public endpoint).
@@ -99,4 +100,40 @@ func (h *AdminUsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, dto.FromUserStats(stats))
+}
+
+// AdminQuotaHandler sets an account's storage quota. The authorization gate
+// (system view only) lives in UpdateUserQuotaService.
+type AdminQuotaHandler struct {
+	quotaService *services.UpdateUserQuotaService
+}
+
+func NewAdminQuotaHandler(quotaService *services.UpdateUserQuotaService) *AdminQuotaHandler {
+	return &AdminQuotaHandler{quotaService: quotaService}
+}
+
+func (h *AdminQuotaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	username := r.PathValue("username")
+	if username == "" {
+		respondError(w, http.StatusBadRequest, "username is required")
+		return
+	}
+
+	var req dto.SetQuotaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	stats, err := h.quotaService.Execute(currentUser(r), username, req.Quota)
+	if err != nil {
+		respondWithError(w, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, dto.FromUserStatsSingle(*stats))
 }

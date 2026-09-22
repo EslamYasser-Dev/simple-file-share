@@ -37,6 +37,7 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 	dir := t.TempDir()
 	repo := fs.NewLocalFileRepository(dir)
 	scoper := policy.NewPathScoper()
+	userRepo := fs.NewUserFileRepository(dir)
 
 	for _, home := range []string{"users/alice", "users/bob", "shared"} {
 		if err := repo.CreateDirectory(home); err != nil {
@@ -62,7 +63,7 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 		list:     NewListFilesService(repo, scoper),
 		download: NewDownloadFileService(repo, scoper),
 		search:   NewSearchFilesService(index, scoper),
-		upload:   NewUploadService(repo, scoper, 0),
+		upload:   NewUploadService(repo, scoper, index, userRepo, 0),
 		mkdir:    NewCreateDirectoryService(repo, scoper),
 		remove:   NewDeletePathService(repo, scoper),
 		update:   NewUpdateFileContentService(repo, scoper),
@@ -202,8 +203,10 @@ func TestAdminKeepsFullVisibility(t *testing.T) {
 func TestUploadRespectsSizeLimit(t *testing.T) {
 	dir := t.TempDir()
 	scoper := policy.NewPathScoper()
-	repo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository())
-	service := NewUploadService(repo, scoper, 5)
+	index := memory.NewFileIndexRepository()
+	repo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	userRepo := fs.NewUserFileRepository(dir)
+	service := NewUploadService(repo, scoper, index, userRepo, 5)
 
 	// Exactly on the limit is allowed.
 	uploads, err := service.Execute(nil, []models.UploadPart{{

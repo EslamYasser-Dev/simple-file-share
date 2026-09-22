@@ -3,11 +3,13 @@ package models
 import "time"
 
 // User is an authenticated account. PasswordHash holds the encoded password
-// hash and is never serialized to API responses.
+// hash and is never serialized to API responses. QuotaBytes is the account's
+// storage allowance in bytes; 0 means unlimited.
 type User struct {
 	Username     string
 	PasswordHash string
 	IsAdmin      bool
+	QuotaBytes   int64
 	CreatedAt    time.Time
 }
 
@@ -20,9 +22,10 @@ func (u *User) IsSystemView() bool {
 // UserStats is a read model that combines an account with its storage usage,
 // used by the admin console.
 type UserStats struct {
-	Username  string
-	IsAdmin   bool
-	CreatedAt time.Time
-	Files     int
-	Size      int64
+	Username   string
+	IsAdmin    bool
+	QuotaBytes int64
+	CreatedAt  time.Time
+	Files      int
+	Size       int64
 }

@@ -168,6 +168,16 @@ function AuthGate() {
     void probe();
   }, [probe]);
 
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearCredentials();
+      useAuthStore.getState().clear();
+      setStatus('login');
+    };
+    window.addEventListener('fs:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('fs:unauthorized', onUnauthorized);
+  }, []);
+
   const handleLogin = useCallback(
     async (username: string, password: string): Promise<string | null> => {
       setCredentials(username, password);

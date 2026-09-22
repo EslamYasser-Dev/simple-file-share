@@ -14,4 +14,10 @@ type UserRepository interface {
 	ListUsers() ([]*models.User, error)
 	// CountUsers returns the number of stored accounts.
 	CountUsers() (int, error)
+	// GetQuotaBytes returns an account's storage quota in bytes (0 = unlimited),
+	// returning domainerrors.ErrUserNotFound when no account matches.
+	GetQuotaBytes(username string) (int64, error)
+	// SetQuotaBytes updates an account's storage quota in bytes. 0 means
+	// unlimited.
+	SetQuotaBytes(username string, quotaBytes int64) error
 }

@@ -139,17 +139,20 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
       }
     })();
 
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [item, kind, t]);
+
+  useEffect(() => {
+    if (!item) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isEditing) onClose();
     };
     window.addEventListener('keydown', handleKey);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('keydown', handleKey);
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [item, kind, onClose, isEditing, t]);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [item, isEditing, onClose]);
 
   if (!item) return null;
 

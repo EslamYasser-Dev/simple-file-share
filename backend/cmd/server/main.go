@@ -70,14 +70,16 @@ func main() {
 	fileDownloadService := services.NewDownloadFileService(fileRepo, scoper)
 	zipService := services.NewDownloadZipService(fileRepo, scoper)
 	downloadService := services.NewDownloadService(fileDownloadService, zipService)
-	uploadService := services.NewUploadService(fileRepo, scoper, cfg.GetMaxUploadBytes())
+	uploadService := services.NewUploadService(fileRepo, scoper, indexRepo, userRepo, cfg.GetMaxUploadBytes())
 	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
 	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
 	deleteService := services.NewDeletePathService(fileRepo, scoper)
 	infoService := services.NewGetFileInfoService(fileRepo, scoper)
 	searchService := services.NewSearchFilesService(indexRepo, scoper)
-	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, cfg.EnableSignup())
+	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, cfg.EnableSignup(), cfg.GetDefaultQuotaBytes())
 	usersService := services.NewListUsersService(userRepo, indexRepo, scoper)
+	userInfoService := services.NewUserInfoService(userRepo, indexRepo, scoper)
+	quotaService := services.NewUpdateUserQuotaService(userRepo, indexRepo, scoper)
 
 	// Public share links: management handlers require auth, resolution does not.
 	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper)
@@ -105,9 +107,10 @@ func main() {
 		FileInfo:   handlers.NewFileInfoHandler(infoService),
 		Search:     handlers.NewSearchHandler(searchService),
 		Register:   handlers.NewRegisterHandler(registerService),
-		Me:         handlers.NewMeHandler(),
+		Me:         handlers.NewMeHandler(userInfoService),
 		AuthInfo:   handlers.NewAuthInfoHandler(cfg.EnableSignup()),
 		AdminUsers: handlers.NewAdminUsersHandler(usersService),
+		AdminQuota: handlers.NewAdminQuotaHandler(quotaService),
 		Shares:     handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService),
 		Share:      handlers.NewShareDownloadHandler(resolveShareService),
 		Health:     handlers.NewHealthHandler(),

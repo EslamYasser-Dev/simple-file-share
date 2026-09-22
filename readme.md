@@ -414,12 +414,11 @@ graph LR
 ├── scripts/
 │   └── deploy-pages.sh               # Build + publish the frontend to GitHub Pages
 ├── .github/workflows/
-│   ├── ci.yml                        # Format, vet, tests, lint, build
-│   ├── release.yml                   # Container image release
-│   └── deploy-pages.yml              # Frontend → GitHub Pages
+│   ├── ci.yml                        # CI checks + GitHub Pages deploy (prod, PR previews, gh-pages branch)
+│   └── release.yml                   # Container image release
 ├── dockerfile                        # Multi-stage build (frontend → Go → distroless-ish runtime)
 ├── docker-compose.yml
-└── makefile                          # Developer & CI targets
+└── Makefile                          # Dev targets: run (backend), dev (frontend + backend)
 ```
 
 ## 🚀 Getting Started
@@ -523,20 +522,25 @@ permissive CORS headers.
 **1. Deploy the API** using Option B/C below, then note its public origin
 (e.g. `https://api.example.com`).
 
-**2. Publish the UI** — either automatically with the included GitHub Actions
-workflow, or manually with the deploy script:
+**2. Publish the UI** — automatically via CI, or manually with the deploy script:
 
-- **Actions (recommended):** in **Settings → Pages** set the source to
+- **CI (recommended):** in **Settings → Pages** set the source to
   **GitHub Actions**, then in **Settings → Secrets and variables → Actions →
   Variables** add `VITE_API_URL` = your API origin. Optionally add
   `VITE_BASE_PATH` (`/` for `<user>.github.io` user/org pages; it defaults to
-  `/<repo>/` for project pages). Pushing to `main` (or running the workflow
-  manually) builds and deploys the frontend.
+  `/<repo>/` for project pages). The `ci.yml` workflow builds the frontend once
+  and on every push to `master`/`main`/`enhancements`:
+  - deploys it to GitHub Pages (Actions source),
+  - force-pushes it to the `gh-pages` branch as a legacy fallback,
+  - deploys each pull request to a Pages **preview** (same-repo PRs),
+  - and verifies it in the Docker image build.
+  
+  For a production deploy a missing `VITE_API_URL` fails the workflow with a
+  pointer to the repository variable (previews build fine without it).
 
 - **Script:**
   ```bash
   VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh
-  # or: make deploy-pages VITE_API_URL=https://api.example.com
   ```
   The script runs `npm ci && npm run build`, adds the SPA `404.html` fallback
   and `.nojekyll`, and force-pushes the result to the `gh-pages` branch. Then
@@ -588,7 +592,7 @@ docker run -d --name file-share -p 22010:22010 \
 ### Option D — Local production-mode smoke test
 
 ```bash
-make build-local                       # builds ./bin/file-share
+mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
 cd frontend && npm run build && cd ..  # builds frontend/dist
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
 ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
@@ -617,8 +621,7 @@ go test ./...              # unit + adapter tests
 go test -race ./...        # with the race detector (what CI runs)
 ```
 
-Coverage is reported with `make coverage` (HTML) and enforced in CI with a
-**20% floor** (`make coverage-check`, override with `COVER_MIN`). The current
+Coverage is enforced in CI with a **20% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The current
 suite sits at roughly **27%** overall, with the domain policy, auth, gRPC, and
 handler packages much higher.
 
@@ -633,8 +636,8 @@ npm run build
 
 ### Full suite
 ```bash
-make test        # backend tests + frontend tests (frontend skipped when absent)
-make lint        # gofmt check + go vet + eslint
+cd backend && go vet ./... && go test -race ./... \
+  && cd ../frontend && npm run lint && npm run build
 ```
 
 ## 📊 Code Quality
@@ -654,7 +657,7 @@ Contributions are welcome — open an issue or submit a pull request.
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite (`make test` or the Make targets below)
+5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && npm run lint`) or the Make targets above
 6. Submit a pull request
 
 ## 🔁 CI/CD
@@ -663,27 +666,24 @@ This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
   - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
-  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
+  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build (with Pages base path + `VITE_API_URL` from repository variables), with `dist/` uploaded as an artifact
   - **Docker**: builds the production image (no push) to verify the Dockerfile
-  - Runs on push to `master`/`main`/`enhancements` and on pull requests
+  - **GitHub Pages** (production): on pushes to `master`/`main`/`enhancements`, the built frontend is deployed (Actions source) and force-pushed to the `gh-pages` branch as a legacy fallback
+  - **GitHub Pages** (PR preview): each pull request from the same repository deploys the built UI to Pages with a preview environment
+  - Requires `VITE_API_URL` for the production deploy and runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
   - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
   - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
 
-- **Pages Workflow**: `.github/workflows/deploy-pages.yml`
-  - Builds the frontend (with `VITE_API_URL` from repository variables) and publishes it to **GitHub Pages**
-  - Runs on pushes touching `frontend/` or via manual dispatch
+- **Pages**: managed inside `ci.yml` (build → production deploy on push → per-PR preview), with `scripts/deploy-pages.sh` as a standalone manual fallback
 
 ### Make targets
 
 ```bash
-make test          # run the full backend + frontend test suite
-make lint          # gofmt + go vet + frontend eslint
-make build         # build the backend binary into bin/
-make run           # build and start the server (see makefile for env defaults)
-make deploy-pages  # build the frontend and publish it to GitHub Pages
+make run   # start the backend with dev defaults (see Environment variables above)
+make dev   # start the Vite dev server and the backend together (frontend on :5173, API on :3000)
 ```
 
 ### How to cut a release

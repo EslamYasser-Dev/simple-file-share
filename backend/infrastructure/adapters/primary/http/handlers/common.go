@@ -36,6 +36,7 @@ func respondWithError(w http.ResponseWriter, err error) {
 	var notDir *domainerrors.NotDirectoryError
 	var shareNotFound *domainerrors.ShareNotFoundError
 	var shareExpired *domainerrors.ShareExpiredError
+	var quotaExceeded *domainerrors.QuotaExceededError
 
 	status := http.StatusInternalServerError
 	message := "internal server error"
@@ -57,6 +58,8 @@ func respondWithError(w http.ResponseWriter, err error) {
 		status, message = http.StatusBadRequest, err.Error()
 	case errors.As(err, &forbidden):
 		status, message = http.StatusForbidden, err.Error()
+	case errors.As(err, &quotaExceeded):
+		status, message = http.StatusRequestEntityTooLarge, err.Error()
 	case errors.As(err, &shareExpired):
 		status, message = http.StatusGone, err.Error()
 	case errors.As(err, &shareNotFound):
