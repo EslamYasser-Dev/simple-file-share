@@ -145,8 +145,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Production deployment to GitHub Pages (Actions source). Requires the
-  # repository variable VITE_API_URL pointing at the hosted backend.
+  # Production deployment to GitHub Pages (Actions source).
   deploy-pages:
     name: Deploy to GitHub Pages
     if: github.event_name == 'push' && contains(fromJson('["master","main","enhancements"]'), github.ref_name)
@@ -168,11 +167,10 @@ jobs:
           name: frontend-dist
           path: frontend/dist
 
-      - name: Require VITE_API_URL
+      - name: Warn when VITE_API_URL is unset
         run: |
           if [ -z "${{ vars.VITE_API_URL }}" ]; then
-            echo "::error::Set the repository variable VITE_API_URL to the deployed backend origin (Settings > Secrets and variables > Actions > Variables) before relying on GitHub Pages."
-            exit 1
+            echo "::warning::VITE_API_URL is not set (Settings > Secrets and variables > Actions > Variables). The UI will deploy but cannot reach a backend until it points at the hosted server."
           fi
 
       - uses: actions/configure-pages@v5
