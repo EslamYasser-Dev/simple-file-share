@@ -162,7 +162,7 @@ jobs:
       group: pages-deploy-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: frontend/dist
@@ -218,7 +218,7 @@ jobs:
       group: pages-preview-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: frontend/dist
@@ -246,7 +246,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: frontend/dist
