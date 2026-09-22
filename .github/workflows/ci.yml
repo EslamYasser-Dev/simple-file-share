@@ -173,6 +173,23 @@ jobs:
             echo "::warning::VITE_API_URL is not set (Settings > Secrets and variables > Actions > Variables). The UI will deploy but cannot reach a backend until it points at the hosted server."
           fi
 
+      - name: Enable GitHub Pages (Actions source)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+          if curl -sf -X POST "https://api.github.com/repos/${repo}/pages" "${auth[@]}" \
+            --data '{"build_type":"workflow"}' >/dev/null 2>&1; then
+            echo "GitHub Pages enabled (source: GitHub Actions)."
+          elif curl -sf -X PUT "https://api.github.com/repos/${repo}/pages" "${auth[@]}" \
+            --data '{"build_type":"workflow"}' >/dev/null 2>&1; then
+            echo "GitHub Pages switched to Actions source."
+          else
+            echo "::error::GitHub Pages could not be enabled via the API. Open Settings > Pages in the repo and set Source to \"GitHub Actions\", then re-run this workflow."
+            exit 1
+          fi
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
