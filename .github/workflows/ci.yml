@@ -197,7 +197,7 @@ jobs:
           path: frontend/dist
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # PR preview on GitHub Pages: the latest pushed commit of each pull request
   # is deployed so reviewers can open the built UI. Fork PRs are skipped
@@ -230,7 +230,7 @@ jobs:
           path: frontend/dist
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # Legacy backup: force-push the built UI to the gh-pages branch on every
   # push, for repositories configured with Pages source "Deploy from a
