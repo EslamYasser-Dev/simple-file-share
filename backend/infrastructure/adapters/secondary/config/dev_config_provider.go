@@ -13,6 +13,8 @@ type DevConfigProvider struct {
 	enableGRPC        bool
 	maxUploadBytes    int64
 	defaultQuotaBytes int64
+	jwtSecret         string
+	jwtTtlSeconds     int
 }
 
 func NewDevConfigProvider() (*DevConfigProvider, error) {
@@ -30,6 +32,8 @@ func NewDevConfigProvider() (*DevConfigProvider, error) {
 		enableGRPC:        resolveEnableGRPC(),
 		maxUploadBytes:    resolveMaxUploadBytes(),
 		defaultQuotaBytes: resolveDefaultQuotaBytes(),
+		jwtSecret:         resolveJWTSecret(),
+		jwtTtlSeconds:     resolveJWTTTLSeconds(),
 	}, nil
 }
 
@@ -44,5 +48,7 @@ func (p *DevConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *DevConfigProvider) EnableTLS() bool             { return resolveBoolEnv("ENABLE_TLS", false) }
 func (p *DevConfigProvider) EnableAuth() bool            { return resolveBoolEnv("ENABLE_AUTH", false) }
 func (p *DevConfigProvider) EnableSignup() bool          { return resolveEnableSignup() }
+func (p *DevConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
+func (p *DevConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
 
 var _ ports.ConfigProvider = (*DevConfigProvider)(nil)

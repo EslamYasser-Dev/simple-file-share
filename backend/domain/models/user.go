@@ -4,13 +4,17 @@ import "time"
 
 // User is an authenticated account. PasswordHash holds the encoded password
 // hash and is never serialized to API responses. QuotaBytes is the account's
-// storage allowance in bytes; 0 means unlimited.
+// storage allowance in bytes; 0 means unlimited. OAuthProvider/OAuthSubject
+// bind the account to a stable IdP user id so display-name collisions cannot
+// take over another person's account.
 type User struct {
-	Username     string
-	PasswordHash string
-	IsAdmin      bool
-	QuotaBytes   int64
-	CreatedAt    time.Time
+	Username      string
+	PasswordHash  string
+	IsAdmin       bool
+	QuotaBytes    int64
+	CreatedAt     time.Time
+	OAuthProvider string
+	OAuthSubject  string
 }
 
 // IsSystemView reports whether the user has unrestricted (admin/system)

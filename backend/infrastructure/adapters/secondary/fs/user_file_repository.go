@@ -33,30 +33,36 @@ func NewUserFileRepository(rootDir string) *UserFileRepository {
 }
 
 type userDocument struct {
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"passwordHash"`
-	IsAdmin      bool      `json:"isAdmin"`
-	QuotaBytes   int64     `json:"quotaBytes,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
+	Username      string    `json:"username"`
+	PasswordHash  string    `json:"passwordHash"`
+	IsAdmin       bool      `json:"isAdmin"`
+	QuotaBytes    int64     `json:"quotaBytes,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	OAuthProvider string    `json:"oauthProvider,omitempty"`
+	OAuthSubject  string    `json:"oauthSubject,omitempty"`
 }
 
 func (d userDocument) toUser() *models.User {
 	return &models.User{
-		Username:     d.Username,
-		PasswordHash: d.PasswordHash,
-		IsAdmin:      d.IsAdmin,
-		QuotaBytes:   d.QuotaBytes,
-		CreatedAt:    d.CreatedAt,
+		Username:      d.Username,
+		PasswordHash:  d.PasswordHash,
+		IsAdmin:       d.IsAdmin,
+		QuotaBytes:    d.QuotaBytes,
+		CreatedAt:     d.CreatedAt,
+		OAuthProvider: d.OAuthProvider,
+		OAuthSubject:  d.OAuthSubject,
 	}
 }
 
 func namedDoc(u *models.User) userDocument {
 	return userDocument{
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		IsAdmin:      u.IsAdmin,
-		QuotaBytes:   u.QuotaBytes,
-		CreatedAt:    u.CreatedAt,
+		Username:      u.Username,
+		PasswordHash:  u.PasswordHash,
+		IsAdmin:       u.IsAdmin,
+		QuotaBytes:    u.QuotaBytes,
+		CreatedAt:     u.CreatedAt,
+		OAuthProvider: u.OAuthProvider,
+		OAuthSubject:  u.OAuthSubject,
 	}
 }
 
@@ -89,6 +95,25 @@ func (r *UserFileRepository) FindByUsername(username string) (*models.User, erro
 		return nil, domainerrors.ErrUserNotFound
 	}
 	return doc.toUser(), nil
+}
+
+func (r *UserFileRepository) FindByOAuth(provider, subject string) (*models.User, error) {
+	if provider == "" || subject == "" {
+		return nil, domainerrors.ErrUserNotFound
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	for _, doc := range docs {
+		if doc.OAuthProvider == provider && doc.OAuthSubject == subject {
+			return doc.toUser(), nil
+		}
+	}
+	return nil, domainerrors.ErrUserNotFound
 }
 
 func (r *UserFileRepository) ListUsers() ([]*models.User, error) {

@@ -7,18 +7,15 @@ import (
 	"time"
 )
 
+// shareLimitRate is the default rate limit for share links (tokens per second).
+const shareLimitRate = 10.0 // tokens refilled per second
+const shareLimitBurst = 30
+
 // ipBucket is a token bucket for a single client address.
 type ipBucket struct {
 	tokens float64
 	last   time.Time
 }
-
-// Share rate-limit budget guarding public share links. Naming the values here
-// keeps the route table self-documenting and lets tests shape the budget.
-const (
-	shareLimitRate  = 10.0 // tokens refilled per second
-	shareLimitBurst = 30
-)
 
 // IPLimiter is a small in-memory token bucket limiter keyed by client address.
 // It is used to blunt brute-force probing of public share links and is not a
@@ -29,6 +26,7 @@ type IPLimiter struct {
 	rate    float64 // tokens refilled per second
 	burst   int
 	now     func() time.Time
+	keyFunc func(r *http.Request) string
 }
 
 func NewIPLimiter(rate float64, burst int) *IPLimiter {
@@ -37,19 +35,21 @@ func NewIPLimiter(rate float64, burst int) *IPLimiter {
 		rate:    rate,
 		burst:   burst,
 		now:     time.Now,
+		keyFunc: ClientIP,
 	}
 }
 
-// Allow reports whether a request from the given client should proceed.
-func (l *IPLimiter) Allow(ip string) bool {
+// Allow reports whether a request should proceed.
+func (l *IPLimiter) Allow(r *http.Request) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
-	b, ok := l.buckets[ip]
+	key := l.keyFunc(r)
+	b, ok := l.buckets[key]
 	if !ok {
 		b = &ipBucket{tokens: float64(l.burst), last: now}
-		l.buckets[ip] = b
+		l.buckets[key] = b
 	} else {
 		b.tokens += now.Sub(b.last).Seconds() * l.rate
 		if b.tokens > float64(l.burst) {
@@ -91,7 +91,7 @@ func RateLimitMiddleware(limiter *IPLimiter) func(http.Handler) http.Handler {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !limiter.Allow(ClientIP(r)) {
+			if !limiter.Allow(r) {
 				w.Header().Set("Retry-After", "1")
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
 				return

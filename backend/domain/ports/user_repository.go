@@ -10,6 +10,9 @@ type UserRepository interface {
 	// FindByUsername looks up a user, returning domainerrors.ErrUserNotFound
 	// when no account matches.
 	FindByUsername(username string) (*models.User, error)
+	// FindByOAuth looks up a user bound to a provider subject, returning
+	// domainerrors.ErrUserNotFound when no account matches.
+	FindByOAuth(provider, subject string) (*models.User, error)
 	// ListUsers returns all accounts ordered by username.
 	ListUsers() ([]*models.User, error)
 	// CountUsers returns the number of stored accounts.

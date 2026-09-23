@@ -12,6 +12,7 @@ type FileItem struct {
 	Size     int64  `json:"size"`
 	IsDir    bool   `json:"isDir"`
 	Modified string `json:"modified"`
+	Version  int    `json:"version,omitempty"`
 }
 
 type UploadResult struct {
@@ -38,6 +39,7 @@ func FromFileInfo(f *models.FileInfo) FileItem {
 		Size:     f.Size,
 		IsDir:    f.IsDir,
 		Modified: modified,
+		Version:  int(f.Version),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 )
 
@@ -32,7 +33,33 @@ type UserStatsResponse struct {
 }
 
 type AuthInfoResponse struct {
-	SignupEnabled bool `json:"signupEnabled"`
+	SignupEnabled bool     `json:"signupEnabled"`
+	OAuth         []string `json:"oauth,omitempty"`
+}
+
+// TokenResponse is the wire shape of a freshly issued access token.
+type TokenResponse struct {
+	AccessToken string `json:"accessToken"`
+	TokenType   string `json:"tokenType"`
+	ExpiresIn   int64  `json:"expiresIn"`
+}
+
+func FromTokenPair(pair *services.TokenPair) TokenResponse {
+	if pair == nil {
+		return TokenResponse{}
+	}
+	expiresIn := int64(0)
+	if !pair.ExpiresAt.IsZero() {
+		expiresIn = int64(time.Until(pair.ExpiresAt).Seconds())
+		if expiresIn < 0 {
+			expiresIn = 0
+		}
+	}
+	return TokenResponse{
+		AccessToken: pair.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   expiresIn,
+	}
 }
 
 func FromUser(u *models.User) UserResponse {

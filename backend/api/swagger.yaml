@@ -91,7 +91,7 @@ paths:
 
   /api/files/search:
     get:
-      summary: Search files and directories by name or path
+      summary: Search files by name, path, or full-text content
       parameters:
         - name: q
           in: query
@@ -106,7 +106,7 @@ paths:
             default: 50
       responses:
         "200":
-          description: Matching file entries (in-memory index)
+          description: Matching file entries (name/path index plus full-text content index)
           content:
             application/json:
               schema:

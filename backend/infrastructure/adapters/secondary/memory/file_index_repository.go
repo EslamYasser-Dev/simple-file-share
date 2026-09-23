@@ -111,6 +111,18 @@ func matchScore(name, path string, terms []string) int {
 	return score
 }
 
+func (r *FileIndexRepository) Get(path string) (*models.FileInfo, error) {
+	path = normalizeIndexPath(path)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	info, ok := r.entries[path]
+	if !ok {
+		return nil, nil
+	}
+	cloned := *info
+	return &cloned, nil
+}
+
 func (r *FileIndexRepository) Upsert(info *models.FileInfo) error {
 	if info == nil {
 		return nil

@@ -20,7 +20,7 @@ func newRegisterHandler(t *testing.T, signupEnabled bool) (*RegisterHandler, *fs
 	t.Helper()
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	userRepo := fs.NewUserFileRepository(dir)
 	hasher := auth.NewPBKDF2Hasher()
 	service := services.NewRegisterUserService(userRepo, hasher, fileRepo, policy.NewPathScoper(), signupEnabled, 0)
@@ -125,9 +125,12 @@ func TestAdminUsersHandlerRequiresAdmin(t *testing.T) {
 
 func TestAuthInfoHandler(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewAuthInfoHandler(true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/info", nil))
+	NewAuthInfoHandler(true, []string{"github"}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/info", nil))
 
 	if rec.Code != http.StatusOK || rec.Body.String() == "" {
 		t.Errorf("status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"oauth":["github"]`) {
+		t.Errorf("body missing oauth list: %s", rec.Body.String())
 	}
 }

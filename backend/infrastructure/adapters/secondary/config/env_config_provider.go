@@ -1,6 +1,10 @@
 package config
 
-import "github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+import (
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"os"
+	"strconv"
+)
 
 type EnvConfigProvider struct {
 	port              string
@@ -14,6 +18,8 @@ type EnvConfigProvider struct {
 	enableAuth        bool
 	enableSignup      bool
 	enableGRPC        bool
+	jwtSecret         string
+	jwtTtlSeconds     int
 }
 
 func NewEnvConfigProvider() (*EnvConfigProvider, error) {
@@ -34,6 +40,8 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		enableAuth:        resolveBoolEnv("ENABLE_AUTH", true),
 		enableSignup:      resolveEnableSignup(),
 		enableGRPC:        resolveEnableGRPC(),
+		jwtSecret:         resolveJWTSecret(),
+		jwtTtlSeconds:     resolveJWTTTLSeconds(),
 	}, nil
 }
 
@@ -48,5 +56,27 @@ func (p *EnvConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *EnvConfigProvider) EnableTLS() bool             { return p.enableTLS }
 func (p *EnvConfigProvider) EnableAuth() bool            { return p.enableAuth }
 func (p *EnvConfigProvider) EnableSignup() bool          { return p.enableSignup }
+func (p *EnvConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
+func (p *EnvConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
 
 var _ ports.ConfigProvider = (*EnvConfigProvider)(nil)
+
+func resolveJWTSecret() string {
+	defaultSecret := "change-me-in-production"
+	v := os.Getenv("JWT_SECRET")
+	if v != "" {
+		return v
+	}
+	return defaultSecret
+}
+
+func resolveJWTTTLSeconds() int {
+	v := os.Getenv("JWT_TTL_SECONDS")
+	if v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return 3600 // 1 hour default
+}

@@ -56,6 +56,10 @@ const en = {
   'auth.passwordsMismatch': 'Passwords do not match',
   'auth.usernameHint': '3-32 characters: letters, digits, dots, dashes, underscores',
   'auth.passwordHint': 'At least 4 characters',
+  'auth.or': 'or continue with',
+  'auth.continueWithGithub': 'Continue with GitHub',
+  'auth.continueWithGoogle': 'Continue with Google',
+  'auth.oauthFailed': 'Sign-in with the identity provider failed',
 
   // Register
   'register.title': 'Create account',
@@ -134,6 +138,19 @@ const en = {
   'home.file': 'file',
   'home.clearSearch': 'Clear search',
   'home.share': 'Share',
+  'home.history': 'Version history',
+
+  // Version history
+  'history.title': 'Version history — {name}',
+  'history.current': 'Current version',
+  'history.previous': 'Previous versions',
+  'history.version': 'Version {n}',
+  'history.empty': 'No previous versions',
+  'history.emptyHint': 'Old versions are kept automatically whenever this file is overwritten.',
+  'history.download': 'Download this version',
+  'history.restore': 'Restore this version',
+  'history.restored': 'Restored version {n}',
+  'history.loadFailed': 'Failed to load version history',
 
   // Share links
   'share.title': 'Share "{name}"',
@@ -182,7 +199,7 @@ const en = {
   // Chat / search
   'chat.title': 'Search',
   'chat.subtitle': 'Find files and folders across your storage',
-  'chat.placeholder': 'Search by name or path...',
+  'chat.placeholder': 'Search by name, path, or file contents...',
   'chat.results': '{n} result(s)',
   'chat.folder': 'Folder',
   'chat.noResults': 'No results found',
@@ -259,6 +276,10 @@ const ar: Messages = {
   'auth.passwordsMismatch': 'كلمتا المرور غير متطابقتين',
   'auth.usernameHint': 'من 3 إلى 32 حرفًا: أحرف وأرقام ونقاط وشرطات وعلامات سفلية',
   'auth.passwordHint': '4 أحرف على الأقل',
+  'auth.or': 'أو تابع باستخدام',
+  'auth.continueWithGithub': 'المتابعة عبر GitHub',
+  'auth.continueWithGoogle': 'المتابعة عبر Google',
+  'auth.oauthFailed': 'فشل تسجيل الدخول عبر مزوّد الهوية',
 
   'register.title': 'إنشاء حساب',
   'register.subtitle': 'سجّل للبدء في تخزين ملفاتك',
@@ -332,6 +353,18 @@ const ar: Messages = {
   'home.file': 'ملف',
   'home.clearSearch': 'مسح البحث',
   'home.share': 'مشاركة',
+  'home.history': 'سجل الإصدارات',
+
+  'history.title': 'سجل الإصدارات — {name}',
+  'history.current': 'الإصدار الحالي',
+  'history.previous': 'الإصدارات السابقة',
+  'history.version': 'الإصدار {n}',
+  'history.empty': 'لا توجد إصدارات سابقة',
+  'history.emptyHint': 'يتم الاحتفاظ بالإصدارات القديمة تلقائيًا عند استبدال هذا الملف.',
+  'history.download': 'تنزيل هذا الإصدار',
+  'history.restore': 'استعادة هذا الإصدار',
+  'history.restored': 'تمت استعادة الإصدار {n}',
+  'history.loadFailed': 'فشل تحميل سجل الإصدارات',
 
   // Share links
   'share.title': 'مشاركة "{name}"',
@@ -378,7 +411,7 @@ const ar: Messages = {
 
   'chat.title': 'بحث',
   'chat.subtitle': 'ابحث في ملفاتك ومجلداتك عبر التخزين',
-  'chat.placeholder': 'البحث بالاسم أو المسار...',
+  'chat.placeholder': 'البحث بالاسم أو المسار أو محتوى الملفات...',
   'chat.results': '{n} نتيجة',
   'chat.folder': 'مجلد',
   'chat.noResults': 'لا توجد نتائج',

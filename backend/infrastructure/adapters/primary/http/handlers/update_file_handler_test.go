@@ -24,7 +24,7 @@ func newUpdateFixture(t *testing.T) *updateFixture {
 	t.Helper()
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	handler := NewUpdateFileHandler(services.NewUpdateFileContentService(fileRepo, policy.NewPathScoper()))
 	return &updateFixture{dir: dir, handler: handler}
 }

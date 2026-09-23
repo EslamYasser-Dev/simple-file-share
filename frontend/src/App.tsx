@@ -10,7 +10,7 @@ import { Chat } from './pages/chat';
 import { Login } from './pages/login';
 import { Register } from './pages/register';
 import { Admin } from './pages/admin';
-import { api, clearCredentials, setCredentials } from './services/api';
+import { api, clearCredentials } from './services/api';
 import { useFileStore } from './store/fileStore';
 import { useAuthStore } from './store/authStore';
 import { useI18n } from './i18n';
@@ -135,7 +135,9 @@ function AuthGate() {
   const { t } = useI18n();
   const setUser = useAuthStore((s) => s.setUser);
   const setSignupEnabled = useAuthStore((s) => s.setSignupEnabled);
+  const setOAuthProviders = useAuthStore((s) => s.setOAuthProviders);
   const signupEnabled = useAuthStore((s) => s.signupEnabled);
+  const oauthProviders = useAuthStore((s) => s.oauthProviders);
   const [status, setStatus] = useState<'checking' | 'login' | 'register' | 'ready' | 'error'>('checking');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -143,12 +145,37 @@ function AuthGate() {
     const result = await api.authInfo();
     if (!result.error) {
       setSignupEnabled(Boolean(result.data?.signupEnabled));
+      setOAuthProviders(result.data?.oauth ?? []);
     }
-  }, [setSignupEnabled]);
+  }, [setSignupEnabled, setOAuthProviders]);
 
   const probe = useCallback(async () => {
     setStatus('checking');
     setErrorMessage(null);
+
+    // One-time OAuth failure marker from the URL fragment (token lives only in
+    // the HttpOnly cookie set by the callback — never in JS or the URL).
+    try {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const oauthError = hash.get('oauthError');
+      // Strip any legacy access_token fragments without storing them.
+      hash.delete('access_token');
+      if (oauthError) {
+        hash.delete('oauthError');
+        setErrorMessage(t('auth.oauthFailed'));
+      }
+      const rest = hash.toString();
+      if (oauthError || window.location.hash.includes('access_token=')) {
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname + window.location.search + (rest ? `#${rest}` : ''),
+        );
+      }
+    } catch {
+      /* non-browser environment */
+    }
+
     await loadAuthInfo();
     const result = await api.me();
     if (result.unauthorized) {
@@ -162,7 +189,7 @@ function AuthGate() {
     }
     if (result.data) setUser(result.data);
     setStatus('ready');
-  }, [loadAuthInfo, setUser]);
+  }, [loadAuthInfo, setUser, t]);
 
   useEffect(() => {
     void probe();
@@ -180,7 +207,14 @@ function AuthGate() {
 
   const handleLogin = useCallback(
     async (username: string, password: string): Promise<string | null> => {
-      setCredentials(username, password);
+      const login = await api.login(username, password);
+      if (login.unauthorized) {
+        clearCredentials();
+        return t('auth.invalidCredentials');
+      }
+      if (login.error) {
+        return login.error;
+      }
       const result = await api.me();
       if (result.unauthorized) {
         clearCredentials();
@@ -197,6 +231,7 @@ function AuthGate() {
   );
 
   const handleSignOut = useCallback(() => {
+    void api.logout().catch(() => undefined);
     clearCredentials();
     useAuthStore.getState().clear();
     useFileStore.getState().setScope('files');
@@ -250,6 +285,7 @@ function AuthGate() {
       <Login
         onLogin={handleLogin}
         signupEnabled={signupEnabled}
+        oauthProviders={oauthProviders}
         onShowRegister={() => setStatus('register')}
       />
     );

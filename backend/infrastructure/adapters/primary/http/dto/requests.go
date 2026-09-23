@@ -36,3 +36,21 @@ type RevokeShareRequest struct {
 type SetQuotaRequest struct {
 	Quota string `json:"quota"`
 }
+
+// RestoreVersionRequest is the body of POST /api/files/version/restore.
+type RestoreVersionRequest struct {
+	Path string `json:"path"`
+	N    int    `json:"n"`
+}
+
+// TokenRequest is the body of POST /api/auth/token.
+type TokenRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// RefreshRequest is the body of POST /api/auth/refresh and /api/auth/revoke
+// when Authorization is not used.
+type RefreshRequest struct {
+	AccessToken string `json:"accessToken"`
+}

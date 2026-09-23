@@ -19,7 +19,7 @@ func newQuotaFixture(t *testing.T) (*UpdateUserQuotaService, *UploadService, *fs
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
 	scoper := policy.NewPathScoper()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	userRepo := fs.NewUserFileRepository(dir)
 
 	if err := userRepo.CreateUser(&models.User{

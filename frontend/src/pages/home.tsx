@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
-import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
-import { buildUrl, authHeader, clearCredentials, api } from '../services/api';
+import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, History, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { buildUrl, clearCredentials, api } from '../services/api';
 import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { FilePreview } from '../components/FilePreview';
 import { Modal } from '../components/Modal';
 import { ShareModal } from '../components/ShareModal';
+import { VersionHistory } from '../components/VersionHistory';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n';
 import { useFileStore } from '../store/fileStore';
@@ -39,6 +40,7 @@ export function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<FileItem | null>(null);
   const closePreview = useCallback(() => setPreviewItem(null), []);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [, startTransition] = useTransition();
@@ -98,7 +100,7 @@ export function Home() {
       // Use streaming download to avoid buffering the entire file in memory.
       // Try File System Access API (Chrome/Edge) first for true streaming to disk.
       const url = buildUrl('/api/files/download', { path: item.path });
-      const response = await fetch(url, { headers: authHeader() });
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
         if (response.status === 401) {
           clearCredentials();
@@ -383,6 +385,15 @@ export function Home() {
                   >
                     <Link2 className="h-4 w-4" />
                   </button>
+                  {!item.isDir && (
+                    <button
+                      onClick={() => setHistoryItem(item)}
+                      className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-cyan-300"
+                      title={t('home.history')}
+                    >
+                      <History className="h-4 w-4" />
+                    </button>
+                  )}
                   {!readOnly && (
                     <button
                       onClick={() => setDeleteTarget(item)}
@@ -417,6 +428,13 @@ export function Home() {
       />
 
       <ShareModal item={shareItem} onClose={() => setShareItem(null)} />
+
+      <VersionHistory
+        item={historyItem}
+        readOnly={readOnly}
+        onClose={() => setHistoryItem(null)}
+        onRestored={() => fetchFiles(currentPath)}
+      />
 
       <Modal
         open={deleteTarget !== null}

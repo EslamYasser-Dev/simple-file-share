@@ -26,7 +26,7 @@ type shareHandlerFixture struct {
 func newShareHandlerFixture(t *testing.T) *shareHandlerFixture {
 	t.Helper()
 	dir := t.TempDir()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository())
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository(), nil)
 	shareRepo := fs.NewShareFileRepository(dir)
 	scoper := policy.NewPathScoper()
 

@@ -23,7 +23,7 @@ func newViewFixture(t *testing.T) *viewFixture {
 	t.Helper()
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	handler := NewViewHandler(services.NewDownloadFileService(fileRepo, policy.NewPathScoper()))
 	return &viewFixture{dir: dir, handler: handler}
 }

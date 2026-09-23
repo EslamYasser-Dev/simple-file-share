@@ -18,4 +18,8 @@ type ConfigProvider interface {
 	// GetDefaultQuotaBytes is the storage quota given to newly registered
 	// accounts. 0 means unlimited.
 	GetDefaultQuotaBytes() int64
+	// GetJWTSecret is the HMAC key for stateless access tokens.
+	GetJWTSecret() string
+	// GetJWTTTLSeconds is the access-token lifetime in seconds.
+	GetJWTTTLSeconds() int
 }

@@ -147,7 +147,7 @@ GET /api/files/info?path=<path>
 ```
 GET /api/files/search?q=<query>&limit=<n>
 ```
-- Recursively matches names/paths within the caller's visible scope.
+- Recursively matches names/paths and full-text content within the caller's visible scope (pure-Go inverted index over text file contents; binaries skipped).
 - **Responses**:
   - `200`: JSON array of matching file entries
   - `400`: Missing query
@@ -717,10 +717,10 @@ For support, please open an issue in the GitHub repository.
 
 - [x] **Authentication**: Username/password accounts with PBKDF2 hashing for all API endpoints
 - [x] **Multi-User**: Private per-user storage, a read-only shared folder, and an admin console
-- [ ] **Rate Limiting**: Add rate limiting for API endpoints
-- [ ] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
-- [ ] **File Versioning**: Support for file version history
-- [ ] **Search**: Full-text search capabilities
+- [x] **Rate Limiting**: Add rate limiting for API endpoints
+- [x] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
+- [x] **File Versioning**: Support for file version history
+- [x] **Search**: Full-text search capabilities
 - [ ] **Cloud Storage**: S3 and other cloud storage backends
 - [ ] **WebSocket**: Real-time file operations
 - [ ] **Mobile App**: React Native mobile application

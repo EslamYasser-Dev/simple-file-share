@@ -22,6 +22,7 @@ func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	var req dto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -64,10 +65,11 @@ func (h *MeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // AuthInfoHandler reports runtime auth capabilities (public endpoint).
 type AuthInfoHandler struct {
 	signupEnabled bool
+	oauth         []string
 }
 
-func NewAuthInfoHandler(signupEnabled bool) *AuthInfoHandler {
-	return &AuthInfoHandler{signupEnabled: signupEnabled}
+func NewAuthInfoHandler(signupEnabled bool, oauthProviders []string) *AuthInfoHandler {
+	return &AuthInfoHandler{signupEnabled: signupEnabled, oauth: oauthProviders}
 }
 
 func (h *AuthInfoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +77,7 @@ func (h *AuthInfoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	respondJSON(w, http.StatusOK, dto.AuthInfoResponse{SignupEnabled: h.signupEnabled})
+	respondJSON(w, http.StatusOK, dto.AuthInfoResponse{SignupEnabled: h.signupEnabled, OAuth: h.oauth})
 }
 
 // AdminUsersHandler lists accounts with storage usage. The authorization gate
