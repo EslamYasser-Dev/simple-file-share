@@ -11,7 +11,7 @@ import (
 )
 
 func newTestUser(username, hash string, isAdmin bool) *models.User {
-	return &models.User{Username: username, PasswordHash: hash, IsAdmin: isAdmin, CreatedAt: time.Now().UTC()}
+	return &models.User{Username: username, PasswordHash: hash, IsAdmin: isAdmin, Enabled: true, CreatedAt: time.Now().UTC()}
 }
 
 func TestUserAuthProviderAuthenticates(t *testing.T) {

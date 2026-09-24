@@ -7,20 +7,23 @@ import (
 )
 
 // ListUsersService returns every account plus per-user storage usage for the
-// admin console. Only the system view (admin, or auth-disabled nil user) may
-// list accounts; the check lives here so both primary adapters enforce it.
+// admin console. Only users.read (or system view) may list accounts; the check
+// lives here so both primary adapters enforce it.
 type ListUsersService struct {
 	users  ports.UserRepository
 	index  ports.FileIndexRepository
 	scoper ports.PathScoper
+	roles  *RoleCatalog
 }
 
-func NewListUsersService(users ports.UserRepository, index ports.FileIndexRepository, scoper ports.PathScoper) *ListUsersService {
-	return &ListUsersService{users: users, index: index, scoper: scoper}
+func NewListUsersService(users ports.UserRepository, index ports.FileIndexRepository, scoper ports.PathScoper, roles *RoleCatalog) *ListUsersService {
+	return &ListUsersService{users: users, index: index, scoper: scoper, roles: roles}
 }
 
 func (s *ListUsersService) Execute(user *models.User) ([]models.UserStats, error) {
-	if !user.IsSystemView() {
+	if user == nil {
+		// auth disabled — system view
+	} else if !user.IsSystemView() && !user.HasPermission(models.PermUsersRead, s.roles) {
 		return nil, &domainerrors.ForbiddenError{Action: "list users"}
 	}
 
@@ -37,7 +40,9 @@ func (s *ListUsersService) Execute(user *models.User) ([]models.UserStats, error
 		}
 		stats = append(stats, models.UserStats{
 			Username:   u.Username,
+			Role:       u.Role,
 			IsAdmin:    u.IsAdmin,
+			Enabled:    u.Enabled,
 			QuotaBytes: u.QuotaBytes,
 			CreatedAt:  u.CreatedAt,
 			Files:      files,

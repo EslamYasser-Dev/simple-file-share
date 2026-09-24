@@ -1,6 +1,7 @@
 package services
 
 import (
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -11,11 +12,15 @@ import (
 type DeletePathService struct {
 	fileRepo ports.FileRepository
 	scoper   ports.PathScoper
+	bus      *events.Bus
 }
 
 func NewDeletePathService(fileRepo ports.FileRepository, scoper ports.PathScoper) *DeletePathService {
 	return &DeletePathService{fileRepo: fileRepo, scoper: scoper}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *DeletePathService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 func (s *DeletePathService) Execute(user *models.User, path string) error {
 	fp, err := valueobjects.NewFilePath(path)
@@ -36,5 +41,9 @@ func (s *DeletePathService) Execute(user *models.User, path string) error {
 		return &errors.NotFoundError{Path: path}
 	}
 
-	return s.fileRepo.DeletePath(physical)
+	if err := s.fileRepo.DeletePath(physical); err != nil {
+		return err
+	}
+	publishEvent(s.bus, events.TypeDelete, path, user)
+	return nil
 }

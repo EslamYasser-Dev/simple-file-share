@@ -13,6 +13,10 @@ type DevConfigProvider struct {
 	enableGRPC        bool
 	maxUploadBytes    int64
 	defaultQuotaBytes int64
+	jwtSecret         string
+	jwtTtlSeconds     int
+	storageBackend    string
+	s3                ports.S3Settings
 }
 
 func NewDevConfigProvider() (*DevConfigProvider, error) {
@@ -30,6 +34,10 @@ func NewDevConfigProvider() (*DevConfigProvider, error) {
 		enableGRPC:        resolveEnableGRPC(),
 		maxUploadBytes:    resolveMaxUploadBytes(),
 		defaultQuotaBytes: resolveDefaultQuotaBytes(),
+		jwtSecret:         resolveJWTSecret(),
+		jwtTtlSeconds:     resolveJWTTTLSeconds(),
+		storageBackend:    resolveStorageBackend(),
+		s3:                resolveS3Settings(),
 	}, nil
 }
 
@@ -44,5 +52,11 @@ func (p *DevConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *DevConfigProvider) EnableTLS() bool             { return resolveBoolEnv("ENABLE_TLS", false) }
 func (p *DevConfigProvider) EnableAuth() bool            { return resolveBoolEnv("ENABLE_AUTH", false) }
 func (p *DevConfigProvider) EnableSignup() bool          { return resolveEnableSignup() }
+func (p *DevConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
+func (p *DevConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
+func (p *DevConfigProvider) GetStorageBackend() string   { return p.storageBackend }
+func (p *DevConfigProvider) GetS3Settings() ports.S3Settings {
+	return p.s3
+}
 
 var _ ports.ConfigProvider = (*DevConfigProvider)(nil)

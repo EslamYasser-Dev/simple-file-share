@@ -19,7 +19,7 @@ func newQuotaFixture(t *testing.T) (*UpdateUserQuotaService, *UploadService, *fs
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
 	scoper := policy.NewPathScoper()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	userRepo := fs.NewUserFileRepository(dir)
 
 	if err := userRepo.CreateUser(&models.User{
@@ -31,7 +31,7 @@ func newQuotaFixture(t *testing.T) (*UpdateUserQuotaService, *UploadService, *fs
 		t.Fatalf("create user: %v", err)
 	}
 
-	return NewUpdateUserQuotaService(userRepo, index, scoper),
+	return NewUpdateUserQuotaService(userRepo, index, scoper, NewRoleCatalog(nil)),
 		NewUploadService(fileRepo, scoper, index, userRepo, 0),
 		userRepo
 }
@@ -40,11 +40,11 @@ func TestUpdateUserQuotaServiceAdminOnly(t *testing.T) {
 	quotaService, _, _ := newQuotaFixture(t)
 
 	var forbidden *domainerrors.ForbiddenError
-	if _, err := quotaService.Execute(&models.User{Username: "someone"}, "quota-user", "1GB"); !errors.As(err, &forbidden) {
+	if _, err := quotaService.Execute(&models.User{Username: "someone", Role: models.RoleMember}, "quota-user", "1GB"); !errors.As(err, &forbidden) {
 		t.Fatalf("non-admin err = %v, want ForbiddenError", err)
 	}
 
-	admin := &models.User{Username: "quota-user", IsAdmin: true}
+	admin := &models.User{Username: "quota-user", Role: models.RoleAdmin, IsAdmin: true}
 	if _, err := quotaService.Execute(admin, "quota-user", "unlimited"); err != nil {
 		t.Fatalf("system-view clamp err = %v", err)
 	}
@@ -52,7 +52,7 @@ func TestUpdateUserQuotaServiceAdminOnly(t *testing.T) {
 
 func TestUpdateUserQuotaServicePersistsAndRejectsInvalid(t *testing.T) {
 	quotaService, _, userRepo := newQuotaFixture(t)
-	nilUser := &models.User{Username: "system", IsAdmin: true}
+	nilUser := &models.User{Username: "system", Role: models.RoleAdmin, IsAdmin: true}
 
 	if _, err := quotaService.Execute(nil, "quota-user", "gibberish"); err == nil {
 		t.Fatal("expected validation error for invalid quota")

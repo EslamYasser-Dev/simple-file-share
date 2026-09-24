@@ -7,12 +7,16 @@ import { useToast } from './hooks/useToast';
 import { Home } from './pages/home';
 import { Summary } from './pages/summary';
 import { Chat } from './pages/chat';
+import { P2P } from './pages/p2p';
 import { Login } from './pages/login';
 import { Register } from './pages/register';
 import { Admin } from './pages/admin';
-import { api, clearCredentials, setCredentials } from './services/api';
+import { api, clearCredentials } from './services/api';
+import { startEvents, stopEvents } from './services/events';
+import { startP2P, stopP2P } from './services/p2p';
 import { useFileStore } from './store/fileStore';
 import { useAuthStore } from './store/authStore';
+import { useConfigStore } from './store/configStore';
 import { useI18n } from './i18n';
 import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 
@@ -21,11 +25,20 @@ function AppShell({ onSignOut }: { onSignOut: () => void }) {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.isAdmin ?? false;
   const setScope = useFileStore((s) => s.setScope);
+  const lanShareEnabled = useConfigStore((s) => s.lanShareEnabled);
   const [page, setPage] = useState<Page>('files');
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [, startTransition] = useTransition();
 
+  // Leave the LAN Share screen as soon as the feature is turned off.
+  useEffect(() => {
+    if (!lanShareEnabled && page === 'p2p') {
+      startTransition(() => setPage('files'));
+    }
+  }, [lanShareEnabled, page]);
+
   const navigate = (next: Page) => {
+    if (next === 'p2p' && !lanShareEnabled) return;
     if (next === 'files' || next === 'shared') {
       setScope(next === 'shared' ? 'shared' : 'files');
     }
@@ -44,6 +57,7 @@ function AppShell({ onSignOut }: { onSignOut: () => void }) {
       {page === 'shared' && <Home />}
       {page === 'summary' && <Summary />}
       {page === 'chat' && <Chat />}
+      {page === 'p2p' && lanShareEnabled && <P2P />}
       {page === 'admin' && isAdmin && <Admin />}
 
       {/* New folder modal (mounted only while open, so its action state resets) */}
@@ -135,7 +149,10 @@ function AuthGate() {
   const { t } = useI18n();
   const setUser = useAuthStore((s) => s.setUser);
   const setSignupEnabled = useAuthStore((s) => s.setSignupEnabled);
+  const setOAuthProviders = useAuthStore((s) => s.setOAuthProviders);
   const signupEnabled = useAuthStore((s) => s.signupEnabled);
+  const oauthProviders = useAuthStore((s) => s.oauthProviders);
+  const lanShareEnabled = useConfigStore((s) => s.lanShareEnabled);
   const [status, setStatus] = useState<'checking' | 'login' | 'register' | 'ready' | 'error'>('checking');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -143,12 +160,37 @@ function AuthGate() {
     const result = await api.authInfo();
     if (!result.error) {
       setSignupEnabled(Boolean(result.data?.signupEnabled));
+      setOAuthProviders(result.data?.oauth ?? []);
     }
-  }, [setSignupEnabled]);
+  }, [setSignupEnabled, setOAuthProviders]);
 
   const probe = useCallback(async () => {
     setStatus('checking');
     setErrorMessage(null);
+
+    // One-time OAuth failure marker from the URL fragment (token lives only in
+    // the HttpOnly cookie set by the callback — never in JS or the URL).
+    try {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const oauthError = hash.get('oauthError');
+      // Strip any legacy access_token fragments without storing them.
+      hash.delete('access_token');
+      if (oauthError) {
+        hash.delete('oauthError');
+        setErrorMessage(t('auth.oauthFailed'));
+      }
+      const rest = hash.toString();
+      if (oauthError || window.location.hash.includes('access_token=')) {
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname + window.location.search + (rest ? `#${rest}` : ''),
+        );
+      }
+    } catch {
+      /* non-browser environment */
+    }
+
     await loadAuthInfo();
     const result = await api.me();
     if (result.unauthorized) {
@@ -162,7 +204,7 @@ function AuthGate() {
     }
     if (result.data) setUser(result.data);
     setStatus('ready');
-  }, [loadAuthInfo, setUser]);
+  }, [loadAuthInfo, setUser, t]);
 
   useEffect(() => {
     void probe();
@@ -172,22 +214,45 @@ function AuthGate() {
     const onUnauthorized = () => {
       clearCredentials();
       useAuthStore.getState().clear();
+      stopEvents();
+      stopP2P();
       setStatus('login');
     };
     window.addEventListener('fs:unauthorized', onUnauthorized);
     return () => window.removeEventListener('fs:unauthorized', onUnauthorized);
   }, []);
 
+  useEffect(() => {
+    if (status === 'ready') {
+      startEvents();
+      if (lanShareEnabled) {
+        startP2P();
+      } else {
+        stopP2P();
+      }
+    } else {
+      stopEvents();
+      stopP2P();
+    }
+    return () => {
+      stopEvents();
+      stopP2P();
+    };
+  }, [status, lanShareEnabled]);
+
   const handleLogin = useCallback(
     async (username: string, password: string): Promise<string | null> => {
-      setCredentials(username, password);
-      const result = await api.me();
-      if (result.unauthorized) {
+      const login = await api.login(username, password);
+      if (login.unauthorized || login.error) {
         clearCredentials();
+        // Always a generic message — never surface raw server errors like
+        // "user not found" (prevents account enumeration in the UI).
         return t('auth.invalidCredentials');
       }
-      if (result.error) {
-        return result.error;
+      const result = await api.me();
+      if (result.unauthorized || result.error) {
+        clearCredentials();
+        return t('auth.invalidCredentials');
       }
       if (result.data) setUser(result.data);
       setStatus('ready');
@@ -197,7 +262,10 @@ function AuthGate() {
   );
 
   const handleSignOut = useCallback(() => {
+    void api.logout().catch(() => undefined);
     clearCredentials();
+    stopEvents();
+    stopP2P();
     useAuthStore.getState().clear();
     useFileStore.getState().setScope('files');
     setStatus('login');
@@ -250,6 +318,7 @@ function AuthGate() {
       <Login
         onLogin={handleLogin}
         signupEnabled={signupEnabled}
+        oauthProviders={oauthProviders}
         onShowRegister={() => setStatus('register')}
       />
     );

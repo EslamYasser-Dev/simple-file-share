@@ -33,30 +33,52 @@ func NewUserFileRepository(rootDir string) *UserFileRepository {
 }
 
 type userDocument struct {
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"passwordHash"`
-	IsAdmin      bool      `json:"isAdmin"`
-	QuotaBytes   int64     `json:"quotaBytes,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
+	Username      string    `json:"username"`
+	PasswordHash  string    `json:"passwordHash"`
+	Role          string    `json:"role,omitempty"`
+	IsAdmin       bool      `json:"isAdmin"`
+	Enabled       *bool     `json:"enabled,omitempty"`
+	QuotaBytes    int64     `json:"quotaBytes,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	OAuthProvider string    `json:"oauthProvider,omitempty"`
+	OAuthSubject  string    `json:"oauthSubject,omitempty"`
 }
 
 func (d userDocument) toUser() *models.User {
-	return &models.User{
-		Username:     d.Username,
-		PasswordHash: d.PasswordHash,
-		IsAdmin:      d.IsAdmin,
-		QuotaBytes:   d.QuotaBytes,
-		CreatedAt:    d.CreatedAt,
+	enabled := true
+	if d.Enabled != nil {
+		enabled = *d.Enabled
 	}
+	u := &models.User{
+		Username:      d.Username,
+		PasswordHash:  d.PasswordHash,
+		Role:          d.Role,
+		IsAdmin:       d.IsAdmin,
+		Enabled:       enabled,
+		QuotaBytes:    d.QuotaBytes,
+		CreatedAt:     d.CreatedAt,
+		OAuthProvider: d.OAuthProvider,
+		OAuthSubject:  d.OAuthSubject,
+	}
+	u.Normalize(nil)
+	return u
 }
 
 func namedDoc(u *models.User) userDocument {
+	enabled := u.Enabled
+	// Accounts created before the Enabled field always had login; treat the
+	// zero value only as disabled when Role was also explicitly managed.
+	// CreateUser callers set Enabled=true explicitly for new accounts.
 	return userDocument{
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		IsAdmin:      u.IsAdmin,
-		QuotaBytes:   u.QuotaBytes,
-		CreatedAt:    u.CreatedAt,
+		Username:      u.Username,
+		PasswordHash:  u.PasswordHash,
+		Role:          u.Role,
+		IsAdmin:       u.IsAdmin,
+		Enabled:       &enabled,
+		QuotaBytes:    u.QuotaBytes,
+		CreatedAt:     u.CreatedAt,
+		OAuthProvider: u.OAuthProvider,
+		OAuthSubject:  u.OAuthSubject,
 	}
 }
 
@@ -72,7 +94,16 @@ func (r *UserFileRepository) CreateUser(user *models.User) error {
 		return domainerrors.ErrUserAlreadyExists
 	}
 
-	docs[user.Username] = namedDoc(user)
+	stored := *user
+	if stored.Role == "" {
+		if stored.IsAdmin {
+			stored.Role = models.RoleAdmin
+		} else {
+			stored.Role = models.RoleMember
+		}
+	}
+
+	docs[user.Username] = namedDoc(&stored)
 	return r.saveLocked(docs)
 }
 
@@ -89,6 +120,25 @@ func (r *UserFileRepository) FindByUsername(username string) (*models.User, erro
 		return nil, domainerrors.ErrUserNotFound
 	}
 	return doc.toUser(), nil
+}
+
+func (r *UserFileRepository) FindByOAuth(provider, subject string) (*models.User, error) {
+	if provider == "" || subject == "" {
+		return nil, domainerrors.ErrUserNotFound
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	for _, doc := range docs {
+		if doc.OAuthProvider == provider && doc.OAuthSubject == subject {
+			return doc.toUser(), nil
+		}
+	}
+	return nil, domainerrors.ErrUserNotFound
 }
 
 func (r *UserFileRepository) ListUsers() ([]*models.User, error) {
@@ -147,6 +197,48 @@ func (r *UserFileRepository) SetQuotaBytes(username string, quotaBytes int64) er
 	}
 	doc.QuotaBytes = quotaBytes
 	docs[username] = doc
+	return r.saveLocked(docs)
+}
+
+func (r *UserFileRepository) UpdateUser(user *models.User, oldUsername string) error {
+	if user == nil || user.Username == "" {
+		return domainerrors.ErrUserNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return err
+	}
+	if oldUsername == "" {
+		oldUsername = user.Username
+	}
+	if _, ok := docs[oldUsername]; !ok {
+		return domainerrors.ErrUserNotFound
+	}
+	if user.Username != oldUsername {
+		if _, exists := docs[user.Username]; exists {
+			return domainerrors.ErrUserAlreadyExists
+		}
+		delete(docs, oldUsername)
+	}
+	docs[user.Username] = namedDoc(user)
+	return r.saveLocked(docs)
+}
+
+func (r *UserFileRepository) DeleteUser(username string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return err
+	}
+	if _, ok := docs[username]; !ok {
+		return domainerrors.ErrUserNotFound
+	}
+	delete(docs, username)
 	return r.saveLocked(docs)
 }
 

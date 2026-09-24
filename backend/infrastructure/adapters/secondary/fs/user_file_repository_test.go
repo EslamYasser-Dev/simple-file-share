@@ -61,7 +61,7 @@ func TestUserFileRepositoryMissing(t *testing.T) {
 func TestUserFileRepositoryPersists(t *testing.T) {
 	dir := t.TempDir()
 	first := NewUserFileRepository(dir)
-	if err := first.CreateUser(&models.User{Username: "bob", PasswordHash: "h", CreatedAt: time.Now()}); err != nil {
+	if err := first.CreateUser(&models.User{Username: "bob", PasswordHash: "h", Enabled: true, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,7 +78,7 @@ func TestUserFileRepositoryPersists(t *testing.T) {
 func TestUserFileRepositoryQuotaRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	repo := NewUserFileRepository(dir)
-	if err := repo.CreateUser(&models.User{Username: "quota", PasswordHash: "h", CreatedAt: time.Now()}); err != nil {
+	if err := repo.CreateUser(&models.User{Username: "quota", PasswordHash: "h", Enabled: true, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 

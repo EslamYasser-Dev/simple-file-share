@@ -13,13 +13,14 @@ import {
   Users,
   LogOut,
   Settings,
+  Radio,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useAuthStore } from '../store/authStore';
 import { useConfigStore } from '../store/configStore';
 import { ConfigPanel } from './ConfigPanel';
 
-export type Page = 'files' | 'shared' | 'summary' | 'chat' | 'admin';
+export type Page = 'files' | 'shared' | 'summary' | 'chat' | 'admin' | 'p2p';
 
 interface LayoutProps {
   active: Page;
@@ -51,6 +52,7 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
   const isAdmin = user?.isAdmin ?? false;
   const theme = useConfigStore((s) => s.theme);
   const setTheme = useConfigStore((s) => s.setTheme);
+  const lanShareEnabled = useConfigStore((s) => s.lanShareEnabled);
   const [showConfig, setShowConfig] = useState(false);
 
   // Resolve the effective theme (system follows the OS preference).
@@ -74,6 +76,7 @@ export function Layout({ active, onNavigate, onUpload, onNewFolder, onSignOut, c
     { key: 'shared', label: t('nav.shared'), icon: Share2 },
     { key: 'summary', label: t('nav.summary'), icon: LayoutDashboard },
     { key: 'chat', label: t('nav.activity'), icon: MessageSquare },
+    ...(lanShareEnabled ? [{ key: 'p2p' as Page, label: t('nav.p2p'), icon: Radio }] : []),
     ...(isAdmin ? [{ key: 'admin' as Page, label: t('nav.admin'), icon: Users }] : []),
   ];
 

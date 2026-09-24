@@ -53,7 +53,7 @@ func (s *AuthService) Me(ctx context.Context, _ *filesharev1.MeRequest) (*filesh
 	user := authctx.UserFromContext(ctx)
 	if user == nil {
 		// Auth disabled — expose the system view so clients render as admin.
-		return &filesharev1.User{IsAdmin: true}, nil
+		return &filesharev1.User{IsAdmin: true, Role: models.RoleAdmin, Enabled: true}, nil
 	}
 	return toProtoUser(user), nil
 }
@@ -70,10 +70,13 @@ func (s *AuthService) ListUsers(ctx context.Context, _ *filesharev1.ListUsersReq
 	out := make([]*filesharev1.UserStats, 0, len(stats))
 	for _, st := range stats {
 		out = append(out, &filesharev1.UserStats{
-			Username:  st.Username,
-			FileCount: int64(st.Files),
-			TotalSize: st.Size,
-			IsAdmin:   st.IsAdmin,
+			Username:   st.Username,
+			FileCount:  int64(st.Files),
+			TotalSize:  st.Size,
+			IsAdmin:    st.IsAdmin,
+			Role:       st.Role,
+			Enabled:    st.Enabled,
+			QuotaBytes: st.QuotaBytes,
 		})
 	}
 	return &filesharev1.ListUsersResponse{Users: out}, nil
@@ -83,5 +86,10 @@ func toProtoUser(u *models.User) *filesharev1.User {
 	if u == nil {
 		return nil
 	}
-	return &filesharev1.User{Username: u.Username, IsAdmin: u.IsAdmin}
+	return &filesharev1.User{
+		Username: u.Username,
+		IsAdmin:  u.IsAdmin,
+		Role:     u.Role,
+		Enabled:  u.Enabled,
+	}
 }

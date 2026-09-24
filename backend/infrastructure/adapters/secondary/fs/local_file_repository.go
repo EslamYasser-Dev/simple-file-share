@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,7 +15,8 @@ import (
 
 // LocalFileRepository implements ports.FileRepository using the local filesystem.
 type LocalFileRepository struct {
-	rootDir string
+	rootDir     string
+	versionKeep int
 }
 
 func NewLocalFileRepository(rootDir string) *LocalFileRepository {
@@ -196,6 +198,28 @@ func (r *LocalFileRepository) CreateDirectory(path string) error {
 	return os.MkdirAll(fullPath, storageDirPerm)
 }
 
+// MovePath renames a physical path inside the storage root (username rename).
+func (r *LocalFileRepository) MovePath(oldPath, newPath string) error {
+	src, err := r.resolve(oldPath)
+	if err != nil {
+		return err
+	}
+	dst, err := r.resolve(newPath)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(src); err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(dst, storageDirPerm)
+		}
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), storageDirPerm); err != nil {
+		return err
+	}
+	return os.Rename(src, dst)
+}
+
 func (r *LocalFileRepository) DeletePath(path string) error {
 	fullPath, err := r.resolve(path)
 	if err != nil {
@@ -260,6 +284,7 @@ func (r *LocalFileRepository) WriteFile(path string, reader io.ReadCloser) (int6
 		_ = restoreLatestVersion(fullPath)
 		return written, closeErr
 	}
+	r.pruneVersions(fullPath)
 	return written, nil
 }
 
@@ -284,6 +309,154 @@ func restoreLatestVersion(fullPath string) error {
 		return nil
 	}
 	return os.Rename(filepath.Join(versionDir, strconv.Itoa(maxVer)), fullPath)
+}
+
+func (r *LocalFileRepository) ListVersions(path string) ([]*models.FileInfo, error) {
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	if info, statErr := os.Stat(fullPath); statErr != nil {
+		return nil, errors.ErrNotFound
+	} else if info.IsDir() {
+		return nil, nil
+	}
+
+	nums, err := versionNumbers(fullPath)
+	if err != nil {
+		return nil, err
+	}
+
+	versionDir := fullPath + ".versions"
+	versions := make([]*models.FileInfo, 0, len(nums))
+	for _, n := range nums {
+		verPath := filepath.Join(versionDir, strconv.Itoa(n))
+		fi, statErr := os.Stat(verPath)
+		if statErr != nil {
+			continue
+		}
+		versions = append(versions, &models.FileInfo{
+			Name:     filepath.Base(fullPath),
+			Path:     path,
+			Size:     fi.Size(),
+			IsDir:    false,
+			Modified: fi.ModTime(),
+			Version:  uint64(n),
+		})
+	}
+	return versions, nil
+}
+
+func (r *LocalFileRepository) ServeVersion(path string, n int) (io.ReadCloser, string, error) {
+	if n < 1 {
+		return nil, "", errors.ErrNotFound
+	}
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return nil, "", err
+	}
+	verPath := filepath.Join(fullPath+".versions", strconv.Itoa(n))
+	file, err := os.Open(verPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", errors.ErrNotFound
+		}
+		return nil, "", err
+	}
+	return file, filepath.Base(fullPath), nil
+}
+
+func (r *LocalFileRepository) RestoreVersion(path string, n int) error {
+	if n < 1 {
+		return errors.ErrNotFound
+	}
+	fullPath, err := r.resolve(path)
+	if err != nil {
+		return err
+	}
+	verPath := filepath.Join(fullPath+".versions", strconv.Itoa(n))
+	src, err := os.Open(verPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errors.ErrNotFound
+		}
+		return err
+	}
+	defer src.Close()
+
+	versionDir := fullPath + ".versions"
+	if _, statErr := os.Stat(fullPath); statErr == nil {
+		if err := os.MkdirAll(versionDir, storageDirPerm); err != nil {
+			return err
+		}
+		snapPath := filepath.Join(versionDir, strconv.Itoa(nextVersionNumber(fullPath)))
+		if err := os.Rename(fullPath, snapPath); err != nil {
+			return err
+		}
+	}
+
+	dst, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		_ = restoreLatestVersion(fullPath)
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(fullPath)
+		_ = restoreLatestVersion(fullPath)
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(fullPath)
+		_ = restoreLatestVersion(fullPath)
+		return err
+	}
+	r.pruneVersions(fullPath)
+	return nil
+}
+
+// SetVersionKeep bounds how many historical snapshots are retained per file.
+// A value of 0 (the default) keeps every snapshot.
+func (r *LocalFileRepository) SetVersionKeep(n int) {
+	if n < 0 {
+		n = 0
+	}
+	r.versionKeep = n
+}
+
+func (r *LocalFileRepository) pruneVersions(fullPath string) {
+	if r.versionKeep <= 0 {
+		return
+	}
+	nums, err := versionNumbers(fullPath)
+	if err != nil || len(nums) <= r.versionKeep {
+		return
+	}
+	versionDir := fullPath + ".versions"
+	for _, n := range nums[:len(nums)-r.versionKeep] {
+		_ = os.Remove(filepath.Join(versionDir, strconv.Itoa(n)))
+	}
+}
+
+func versionNumbers(fullPath string) ([]int, error) {
+	entries, err := os.ReadDir(fullPath + ".versions")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var nums []int
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if n, convErr := strconv.Atoi(entry.Name()); convErr == nil && n > 0 {
+			nums = append(nums, n)
+		}
+	}
+	sort.Ints(nums)
+	return nums, nil
 }
 
 func (r *LocalFileRepository) ZipDirectory(root string) (io.ReadCloser, error) {

@@ -124,6 +124,33 @@ jobs:
           path: frontend/dist
           if-no-files-found: ignore
 
+  mobile:
+    name: Mobile (Expo)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx expo lint
+
   docker:
     name: Docker image
     runs-on: ubuntu-latest

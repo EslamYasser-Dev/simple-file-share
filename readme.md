@@ -45,6 +45,7 @@ Simple File Share is a modern web application that provides secure file manageme
 
 ### 👥 Multi-User & Permissions
 - **Self-Service Signup**: Optional public registration (`ENABLE_SIGNUP`); the first account becomes an admin
+- **RBAC**: Built-in `admin`/`member` roles plus custom roles with a permission matrix; gates live in application services
 - **Private Storage**: Each regular user sees only their isolated home directory; requests for another user's namespace return `403`
 - **Global Shared Folder**: A common `shared/` space that every signed-in user can read (writes are admin-only)
 - **Admin Console**: Admins see every account with per-user file count and storage usage
@@ -55,7 +56,7 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Primary Adapters**: HTTP (`net/http`) and gRPC expose the same application services
 - **Secondary Adapters**: Filesystem repository, user store, config, TLS, and logging are all swappable behind domain ports
 - **Dependency Injection**: Adapters are wired once in `cmd/server/main.go`, keeping the core easy to test
-- **Pluggable Storage**: Implement the repository port to swap the local filesystem for S3 or another backend
+- **Pluggable Storage**: `STORAGE_BACKEND=local` (default) or `s3` swaps the file repository for an S3-compatible object store without touching application code
 - **Structured Logging**: Built-in structured logging for monitoring and debugging
 
 ## 🛠️ Technology Stack
@@ -75,6 +76,13 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Styling**: Tailwind CSS with responsive design
 - **State Management**: Zustand (global stores) with selectors
 - **Internationalization**: English/Arabic with RTL layout and persisted preference
+
+### Mobile
+- **Framework**: React Native with Expo SDK 57 and Expo Router
+- **Language**: TypeScript
+- **Auth**: JWT via `Authorization: Bearer` (token stored in SecureStore)
+- **Features**: Browse/upload/download, share links, usage bar, live SSE events
+- **Config**: `EXPO_PUBLIC_API_URL` points at the Go API base URL
 
 ## 📚 API Documentation
 
@@ -147,10 +155,22 @@ GET /api/files/info?path=<path>
 ```
 GET /api/files/search?q=<query>&limit=<n>
 ```
-- Recursively matches names/paths within the caller's visible scope.
+- Recursively matches names/paths and full-text content within the caller's visible scope (pure-Go inverted index over text file contents; binaries skipped).
 - **Responses**:
   - `200`: JSON array of matching file entries
   - `400`: Missing query
+  - `401`: Authentication required
+
+#### 6b. Live Events (SSE)
+```
+GET /api/events
+Accept: text/event-stream
+```
+- Server-Sent Events stream of filesystem/account changes for the signed-in user: `upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `restore`, `quota`.
+- Frame shape: `data: {"type":"...","path":"...","user":"...","at":"..."}` plus `: ping` heartbeats every 15s.
+- Browser clients rely on the HttpOnly `fs_session` cookie (`EventSource` with credentials); API clients may send `Authorization: Bearer <token>`.
+- **Responses**:
+  - `200`: `text/event-stream` (long-lived)
   - `401`: Authentication required
 
 #### 7. Update File Content
@@ -234,17 +254,32 @@ GET /api/auth/me
 ```
 - Returns the authenticated account (or the system-admin view when auth is disabled).
 - **Responses**:
-  - `200`: `{ "username": "alice", "isAdmin": false, "createdAt": "..." }`
+  - `200`: `{ "username": "alice", "role": "member", "isAdmin": false, "enabled": true, "createdAt": "..." }`
   - `401`: Authentication required
 
-#### 14. List Users (admin only)
+#### 14. User management (admin / RBAC)
 ```
-GET /api/admin/users
+GET    /api/admin/users                         # list (users.read)
+POST   /api/admin/users                         # create (users.create)
+PATCH  /api/admin/users/{username}              # role / enable / rename (users.update)
+DELETE /api/admin/users/{username}              # delete + cascade (users.delete)
+PUT    /api/admin/users/{username}/quota        # quota.manage
+POST   /api/admin/users/{username}/password     # admin reset (users.update)
+POST   /api/auth/password                       # change own password
+GET    /api/admin/roles                         # roles.manage
+POST   /api/admin/roles                         # upsert custom role (roles.manage)
+DELETE /api/admin/roles/{name}                  # delete unused custom role (roles.manage)
+GET    /api/admin/analytics/overview            # usage rollup (users.read; ?days=1..365)
+GET    /api/admin/analytics/timeline            # daily activity buckets (users.read)
+GET    /api/admin/analytics/top-files           # most-touched paths (users.read; ?limit=)
 ```
+- Built-in roles: `admin` (all permissions), `member` (no elevated permissions).
+- Custom roles store permission grants in `.file-share/roles.json`.
+- Disable, rename, role change, and password reset revoke outstanding sessions.
+- Analytics events are appended PII-free to `.file-share/events.jsonl` (no IPs or credentials).
 - **Responses**:
-  - `200`: Array of `{ "username", "isAdmin", "createdAt", "files", "size" }`
-  - `401`: Authentication required
-  - `403`: Admin access required
+  - `200` / `201`: account or role JSON (`role`, `enabled`, `isAdmin`, usage)
+  - `400` / `403` / `404` / `409`: validation, forbidden, not found, conflict
 
 #### 15. API Documentation
 ```
@@ -261,7 +296,7 @@ contract lives at `backend/api/proto/fileshare/v1/fileshare.proto`; generated
 Go stubs live beside it.
 
 - **Services**
-  - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (admin)
+  - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (users.read)
   - `fileshare.v1.FileService`: `ListFiles`, `GetFileInfo`, `SearchFiles`, `CreateDirectory`, `DeletePath`, `UpdateFileContent`, `UploadFile` (client streaming), `DownloadFile` (server streaming)
 - **Authentication**: HTTP Basic credentials in request metadata (`authorization: Basic ...`), matching the web API. `Register`, `Authenticate`, and `GetAuthInfo` are public.
 - **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 64 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk.
@@ -411,6 +446,10 @@ graph LR
 │           ├── primary/              # Driving adapters: http/, grpc/, authctx/
 │           └── secondary/            # Driven adapters: fs/, auth/, config/, tls/, logging/, memory/
 ├── frontend/                         # React + TypeScript + Vite SPA (see frontend/README.md)
+├── mobile/                           # Expo React Native app (Expo Router, TypeScript)
+│   ├── src/app/                      # Route screens (`_layout`, login, tabs)
+│   ├── src/services/                 # REST client, JWT auth, SSE stream
+│   └── src/config/                   # EXPO_PUBLIC_API_URL resolution
 ├── scripts/
 │   └── deploy-pages.sh               # Build + publish the frontend to GitHub Pages
 ├── .github/workflows/
@@ -482,10 +521,37 @@ graph LR
 
 ### Docker Setup
 
-1. **Build and run with Docker Compose**
+1. **Provide production secrets** — compose requires `JWT_SECRET` and
+   `ADMIN_PASSWORD` (the server refuses to start in production without a real
+   `JWT_SECRET`). Either export them for the shell:
+
    ```bash
-   docker-compose up --build
+   export JWT_SECRET="$(openssl rand -hex 32)"
+   export ADMIN_PASSWORD='your-strong-password'
    ```
+
+   or put both lines in a `.env` file next to `docker-compose.yml`
+   (Docker Compose reads it automatically).
+
+2. **Build and run with Docker Compose**
+   ```bash
+   docker compose up --build
+   ```
+
+### Mobile app (Expo)
+
+```bash
+cd mobile
+npm install
+# Point the app at your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
+echo 'EXPO_PUBLIC_API_URL=http://10.0.2.2:3000' > .env.local
+npx expo start
+# typecheck + lint
+npx tsc --noEmit && npx expo lint
+```
+
+OAuth sign-in uses the browser session cookie flow, so the mobile app currently
+supports username/password JWT login only.
 
 ## ☁️ Deployment
 
@@ -503,13 +569,23 @@ Two deployment shapes are supported:
 | `ROOT_DIR` / `FILE_SHARE_ROOT` | `.file-share-data` (dev) / `/data` (prod) | Dedicated storage directory owned by the server. Created with owner-only permissions (`0700`); unsafe values (filesystem root, working directory, home, source tree, or symlink) are rejected at startup |
 | `STATIC_DIR` | `frontend/dist` | Directory containing the built React app (index.html + assets) |
 | `ADMIN_USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Bootstrap admin username, seeded only when no accounts exist |
-| `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password (**change in production**) |
+| `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password. In production the server refuses to first-boot seed a known default value (`changeme`, `admin`, …) |
+| `JWT_SECRET` | `change-me-in-production` (dev only) | HMAC key for access tokens. **Required in production**: must be a random value of at least 32 characters (e.g. `openssl rand -hex 32`), otherwise the server refuses to start |
 | `ENABLE_SIGNUP` | `true` | Allow public self-service registration |
 | `MAX_UPLOAD_BYTES` | `unlimited` | Maximum upload size. `unlimited`/`0` (default) caps nothing; set e.g. `2GB`, `500MB`, or a raw byte count to enforce a limit |
 | `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
 | `ENABLE_TLS` | `false` | Serve HTTPS with generated certs |
 | `ENABLE_GRPC` | `true` | Toggle the gRPC server for mobile clients |
 | `GRPC_PORT` | `50051` | gRPC listen port |
+| `VERSION_KEEP` | `0` (keep all) | Historical snapshots retained per file; oldest are pruned first |
+| `STORAGE_BACKEND` | `local` | `local` (filesystem) or `s3` (S3-compatible object store) |
+| `S3_ENDPOINT` | AWS regional URL | Custom S3 API endpoint (MinIO, R2, Ceph, GCS). Path-style is forced for non-AWS hosts |
+| `S3_BUCKET` | — | Bucket name (required when `STORAGE_BACKEND=s3`) |
+| `S3_REGION` | `us-east-1` | Signing region |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials (required when `STORAGE_BACKEND=s3`) |
+| `S3_PREFIX` | `""` | Optional key prefix inside the bucket (e.g. tenant id) |
+| `S3_PATH_STYLE` | auto | `true` forces `endpoint/bucket/key` addressing |
+| `EXPO_PUBLIC_API_URL` | platform default | Mobile app only: absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
@@ -560,12 +636,13 @@ docker run -d --name file-share \
   -p 22010:22010 \
   -v file-share-data:/data \
   -e APP_ENV=production \
+  -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD='your-strong-password' \
   simple-file-share
 
-# Or, ready to go
-docker-compose up --build
+# Or, ready to go (set JWT_SECRET + ADMIN_PASSWORD first, see Docker Setup)
+docker compose up --build
 ```
 
 Then open `http://localhost:22010`.
@@ -585,7 +662,8 @@ release workflow, which builds the image and publishes it to
 docker pull ghcr.io/eslamyasser-dev/simple-file-share:latest
 docker run -d --name file-share -p 22010:22010 \
   -v file-share-data:/data \
-  -e APP_ENV=production -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD='your-strong-password' \
+  -e APP_ENV=production -e JWT_SECRET="$(openssl rand -hex 32)" \
+  -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD='your-strong-password' \
   ghcr.io/eslamyasser-dev/simple-file-share:latest
 ```
 
@@ -595,17 +673,20 @@ docker run -d --name file-share -p 22010:22010 \
 mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
 cd frontend && npm run build && cd ..  # builds frontend/dist
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
-ADMIN_USERNAME=admin ADMIN_PASSWORD=admin ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
+JWT_SECRET="$(openssl rand -hex 32)" \
+ADMIN_USERNAME=admin ADMIN_PASSWORD='local-smoke-only' ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
 # -> http://localhost:8090 serves the UI; API at /api/*; health at /health
 ```
 
 ## 🛡️ Security Considerations
 
 - **Dedicated storage**: `ROOT_DIR` is the single directory the server owns. It is created with owner-only permissions (`0700`), and the server refuses to start if it points at a filesystem root, the working directory, the home directory, a source checkout, or a symlink. Uploaded directories are `0700` and files `0600`.
-- Always use strong passwords
+- Always use strong passwords — in production the server refuses to start without a random `JWT_SECRET` (≥32 chars) and will not seed the bootstrap admin with a known default `ADMIN_PASSWORD`
+- The API sets security headers on every response (`CSP`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Strict-Transport-Security` over HTTPS)
 - Keep TLS certificates up to date
 - Disable public signup (`ENABLE_SIGNUP=false`) on private deployments
 - Review the user list periodically (`GET /api/admin/users`) and remove stale accounts
+- Prefer custom roles with least privilege over granting full `admin` to operators
 - Regularly audit file permissions on the `ROOT_DIR` volume
 - Monitor access logs for suspicious activity
 - Consider adding rate limiting in production
@@ -704,7 +785,7 @@ Released under the MIT License.
 2. **Minimal Dependencies**: The web server and file operations use Go's standard library; the only third-party modules are gRPC and protobuf for the mobile API
 3. **Streaming Architecture**: Handles large files efficiently with minimal memory usage
 4. **Production Ready**: Includes health checks, proper error handling, and structured logging
-5. **Flexible Storage**: Implement the repository port to add different storage backends (local filesystem, S3, etc.)
+5. **Flexible Storage**: Local filesystem or any S3-compatible object store (AWS, MinIO, R2, GCS) selected via `STORAGE_BACKEND`
 6. **Self-Contained**: No database required - perfect for simple deployments
 7. **Multi-User**: Per-user private storage, a global shared folder, and an admin console
 8. **Input Validation**: Comprehensive validation for security and reliability
@@ -717,14 +798,15 @@ For support, please open an issue in the GitHub repository.
 
 - [x] **Authentication**: Username/password accounts with PBKDF2 hashing for all API endpoints
 - [x] **Multi-User**: Private per-user storage, a read-only shared folder, and an admin console
-- [ ] **Rate Limiting**: Add rate limiting for API endpoints
-- [ ] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
-- [ ] **File Versioning**: Support for file version history
-- [ ] **Search**: Full-text search capabilities
-- [ ] **Cloud Storage**: S3 and other cloud storage backends
-- [ ] **WebSocket**: Real-time file operations
-- [ ] **Mobile App**: React Native mobile application
-- [ ] **Analytics**: Usage analytics and reporting
+- [x] **Rate Limiting**: Add rate limiting for API endpoints
+- [x] **OAuth2 / SSO**: Drop-in OAuth2 or single-sign-on authentication
+- [x] **File Versioning**: Support for file version history
+- [x] **Search**: Full-text search capabilities
+- [x] **Real-time updates**: Live file/account events over Server-Sent Events
+- [x] **User management & RBAC**: Custom roles/permissions, account lifecycle, password reset, session revoke
+- [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
+- [x] **Mobile App**: Expo React Native client (browse, upload, download, share, usage, SSE)
+- [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
 
 ## 📈 Performance Notes
 

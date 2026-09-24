@@ -62,7 +62,7 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 	return &isolationFixture{
 		list:     NewListFilesService(repo, scoper),
 		download: NewDownloadFileService(repo, scoper),
-		search:   NewSearchFilesService(index, scoper),
+		search:   NewSearchFilesService(index, scoper, nil),
 		upload:   NewUploadService(repo, scoper, index, userRepo, 0),
 		mkdir:    NewCreateDirectoryService(repo, scoper),
 		remove:   NewDeletePathService(repo, scoper),
@@ -204,7 +204,7 @@ func TestUploadRespectsSizeLimit(t *testing.T) {
 	dir := t.TempDir()
 	scoper := policy.NewPathScoper()
 	index := memory.NewFileIndexRepository()
-	repo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	repo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	userRepo := fs.NewUserFileRepository(dir)
 	service := NewUploadService(repo, scoper, index, userRepo, 5)
 

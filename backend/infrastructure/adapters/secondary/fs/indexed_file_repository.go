@@ -7,17 +7,22 @@ import (
 	"strings"
 
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
-// IndexedFileRepository wraps filesystem storage and keeps a search index in sync.
+// IndexedFileRepository wraps filesystem storage and keeps metadata and
+// full-text indexes in sync on every mutation.
 type IndexedFileRepository struct {
 	fs    ports.FileRepository
 	index ports.FileIndexRepository
+	text  ports.TextIndex
 }
 
-func NewIndexedFileRepository(fs ports.FileRepository, index ports.FileIndexRepository) *IndexedFileRepository {
-	return &IndexedFileRepository{fs: fs, index: index}
+// NewIndexedFileRepository wires the metadata index. text may be nil to skip
+// content indexing (unit tests, read-only tools).
+func NewIndexedFileRepository(fs ports.FileRepository, index ports.FileIndexRepository, text ports.TextIndex) *IndexedFileRepository {
+	return &IndexedFileRepository{fs: fs, index: index, text: text}
 }
 
 func (r *IndexedFileRepository) ListDirectory(path string) ([]*models.FileInfo, error) {
@@ -61,8 +66,14 @@ func (r *IndexedFileRepository) DeletePath(path string) error {
 	normalized := strings.TrimPrefix(filepath.ToSlash(path), "/")
 	if isDir {
 		_ = r.index.RemovePrefix(normalized)
+		if r.text != nil {
+			_ = r.text.RemovePrefix(normalized)
+		}
 	} else {
 		_ = r.index.Remove(normalized)
+		if r.text != nil {
+			_ = r.text.Remove(normalized)
+		}
 	}
 	return nil
 }
@@ -80,12 +91,44 @@ func (r *IndexedFileRepository) ZipDirectory(root string) (io.ReadCloser, error)
 	return r.fs.ZipDirectory(root)
 }
 
+// SyncPath refreshes metadata and (when available) content for path after an
+// external write such as a version restore.
+func (r *IndexedFileRepository) SyncPath(path string) {
+	r.syncPath(path)
+}
+
 func (r *IndexedFileRepository) syncPath(path string) {
 	info, err := r.fs.GetFileInfo(path)
 	if err != nil {
 		return
 	}
 	_ = r.index.Upsert(info)
+	r.syncContent(path, info)
+}
+
+// syncContent re-extracts text for indexable files and updates the inverted
+// index. Directories and binary/non-indexable files drop any prior content.
+func (r *IndexedFileRepository) syncContent(path string, info *models.FileInfo) {
+	if r.text == nil {
+		return
+	}
+	normalized := strings.TrimPrefix(filepath.ToSlash(path), "/")
+	if info == nil || info.IsDir || !policy.IsIndexableTextPath(normalized) {
+		_ = r.text.Remove(normalized)
+		return
+	}
+	rc, _, err := r.fs.ServeFile(normalized)
+	if err != nil {
+		_ = r.text.Remove(normalized)
+		return
+	}
+	defer rc.Close()
+	content, ok := policy.ReadIndexableText(normalized, rc)
+	if !ok {
+		_ = r.text.Remove(normalized)
+		return
+	}
+	_ = r.text.Index(normalized, content)
 }
 
 // WalkRoot indexes every file and directory under rootDir.
@@ -135,6 +178,57 @@ func WalkRoot(rootDir string) ([]*models.FileInfo, error) {
 	return entries, err
 }
 
+// WalkRootTextDocuments extracts searchable text from indexable files under
+// rootDir for a full-text index rebuild at startup.
+func WalkRootTextDocuments(rootDir string) ([]ports.TextDocument, error) {
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var docs []ports.TextDocument
+	err = filepath.WalkDir(absRoot, func(fullPath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		rel, relErr := filepath.Rel(absRoot, fullPath)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+
+		if d.IsDir() {
+			if shouldSkipIndexPath(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if shouldSkipIndexPath(rel) {
+			return nil
+		}
+		if !policy.IsIndexableTextPath(rel) {
+			return nil
+		}
+
+		f, openErr := os.Open(fullPath)
+		if openErr != nil {
+			return nil
+		}
+		content, ok := policy.ReadIndexableText(rel, f)
+		_ = f.Close()
+		if !ok {
+			return nil
+		}
+		docs = append(docs, ports.TextDocument{Path: rel, Content: content})
+		return nil
+	})
+	return docs, err
+}
+
 func shouldSkipIndexPath(path string) bool {
 	if strings.HasPrefix(path, ".file-share") {
 		return true
@@ -149,3 +243,4 @@ var _ ports.FileRepository = (*IndexedFileRepository)(nil)
 
 // Ensure LocalFileRepository satisfies FileRepository when passed as fs.
 var _ ports.FileRepository = (*LocalFileRepository)(nil)
+var _ ports.VersionRepository = (*LocalFileRepository)(nil)

@@ -19,6 +19,8 @@ export function ConfigPanel({ open, onClose }: ConfigPanelProps) {
   const setTheme = useConfigStore((s) => s.setTheme);
   const maxUploads = useConfigStore((s) => s.maxConcurrentUploads);
   const setMaxUploads = useConfigStore((s) => s.setMaxConcurrentUploads);
+  const lanShareEnabled = useConfigStore((s) => s.lanShareEnabled);
+  const setLanShareEnabled = useConfigStore((s) => s.setLanShareEnabled);
   const [uploadDraft, setUploadDraft] = useState(String(maxUploads));
 
   useEffect(() => {
@@ -79,6 +81,44 @@ export function ConfigPanel({ open, onClose }: ConfigPanelProps) {
             }}
             className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
           />
+        </section>
+
+        {/* LAN / P2P share toggle */}
+        <section>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {t('config.lanShare')}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">{t('config.lanShareHint')}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={lanShareEnabled}
+              aria-label={t('config.lanShare')}
+              onClick={() => setLanShareEnabled(!lanShareEnabled)}
+              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
+                lanShareEnabled
+                  ? 'border-cyan-400/50 bg-cyan-500/40'
+                  : 'border-white/15 bg-white/10'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 rounded-full bg-white shadow transition-all ${
+                  lanShareEnabled ? 'left-[calc(100%-1.125rem-0.125rem)]' : 'left-0.5'
+                }`}
+                style={{ height: '1.125rem', width: '1.125rem' }}
+              />
+            </button>
+          </div>
+          <p
+            className={`mt-1.5 text-[11px] font-medium ${
+              lanShareEnabled ? 'text-cyan-300/80' : 'text-slate-500'
+            }`}
+          >
+            {lanShareEnabled ? t('config.lanShareOn') : t('config.lanShareOff')}
+          </p>
         </section>
 
         <div className="flex items-center gap-2 text-xs text-slate-500">

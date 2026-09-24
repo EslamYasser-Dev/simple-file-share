@@ -27,7 +27,7 @@ type shareFixture struct {
 func newShareFixture(t *testing.T) *shareFixture {
 	t.Helper()
 	dir := t.TempDir()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memoryIndex())
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memoryIndex(), nil)
 	shareRepo := fs.NewShareFileRepository(dir)
 	scoper := policy.NewPathScoper()
 	downloadService := NewDownloadService(
@@ -39,8 +39,8 @@ func newShareFixture(t *testing.T) *shareFixture {
 		shareRepo: shareRepo,
 		scoper:    scoper,
 		create:    NewCreateShareService(fileRepo, shareRepo, scoper),
-		list:      NewListSharesService(shareRepo, scoper),
-		revoke:    NewRevokeShareService(shareRepo, scoper),
+		list:      NewListSharesService(shareRepo, scoper, NewRoleCatalog(nil)),
+		revoke:    NewRevokeShareService(shareRepo, scoper, NewRoleCatalog(nil)),
 		resolve:   NewResolveShareService(shareRepo, scoper, downloadService),
 	}
 }

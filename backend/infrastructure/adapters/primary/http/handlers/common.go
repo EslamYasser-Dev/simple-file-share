@@ -45,9 +45,12 @@ func respondWithError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
 		status, message = http.StatusConflict, err.Error()
 	case errors.Is(err, domainerrors.ErrInvalidCredentials):
-		status, message = http.StatusUnauthorized, err.Error()
+		// Never distinguish "bad password" from "no such user" — one generic
+		// 401 prevents account enumeration through login responses.
+		status, message = http.StatusUnauthorized, "authentication failed"
 	case errors.Is(err, domainerrors.ErrUserNotFound):
-		status, message = http.StatusNotFound, err.Error()
+		// User-lookup misses on public auth surfaces must not leak existence.
+		status, message = http.StatusUnauthorized, "authentication failed"
 	case errors.As(err, &notFound):
 		status, message = http.StatusNotFound, err.Error()
 	case errors.As(err, &validation):

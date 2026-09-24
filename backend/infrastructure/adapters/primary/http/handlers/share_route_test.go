@@ -22,16 +22,16 @@ func (noopTLSCertGenerator) GenerateCert() ([]byte, []byte, error) { return nil,
 // attached to the RouteHandlers.Share handler.
 func TestShareRouteIsRateLimited(t *testing.T) {
 	dir := t.TempDir()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository())
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), memory.NewFileIndexRepository(), nil)
 	scoper := policy.NewPathScoper()
 	shareRepo := fs.NewShareFileRepository(dir)
 	downloadService := services.NewDownloadService(
 		services.NewDownloadFileService(fileRepo, scoper),
 		services.NewDownloadZipService(fileRepo, scoper),
 	)
-	server := xhttp.NewServer("0", noopTLSCertGenerator{}, logging.NewStdLogger(), xhttp.RouteHandlers{
+	server := xhttp.NewServer("0", noopTLSCertGenerator{}, logging.NewStdLoggerPlain(), xhttp.RouteHandlers{
 		Share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService)),
-	}, nil, false)
+	}, nil, nil, false)
 
 	mux := server.RegisterRoutesForTest()
 	srv := httptest.NewServer(mux)

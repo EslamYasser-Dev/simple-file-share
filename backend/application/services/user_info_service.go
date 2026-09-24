@@ -23,7 +23,7 @@ func NewUserInfoService(users ports.UserRepository, index ports.FileIndexReposit
 
 func (s *UserInfoService) Execute(user *models.User) (*models.UserStats, error) {
 	if user == nil {
-		return &models.UserStats{IsAdmin: true}, nil
+		return &models.UserStats{IsAdmin: true, Enabled: true, Role: models.RoleAdmin}, nil
 	}
 
 	quota, err := s.users.GetQuotaBytes(user.Username)
@@ -40,7 +40,9 @@ func (s *UserInfoService) Execute(user *models.User) (*models.UserStats, error) 
 	}
 	return &models.UserStats{
 		Username:   user.Username,
+		Role:       user.Role,
 		IsAdmin:    user.IsAdmin,
+		Enabled:    user.Enabled,
 		QuotaBytes: quota,
 		CreatedAt:  user.CreatedAt,
 		Files:      files,

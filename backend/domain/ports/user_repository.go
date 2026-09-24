@@ -10,6 +10,9 @@ type UserRepository interface {
 	// FindByUsername looks up a user, returning domainerrors.ErrUserNotFound
 	// when no account matches.
 	FindByUsername(username string) (*models.User, error)
+	// FindByOAuth looks up a user bound to a provider subject, returning
+	// domainerrors.ErrUserNotFound when no account matches.
+	FindByOAuth(provider, subject string) (*models.User, error)
 	// ListUsers returns all accounts ordered by username.
 	ListUsers() ([]*models.User, error)
 	// CountUsers returns the number of stored accounts.
@@ -20,4 +23,12 @@ type UserRepository interface {
 	// SetQuotaBytes updates an account's storage quota in bytes. 0 means
 	// unlimited.
 	SetQuotaBytes(username string, quotaBytes int64) error
+	// UpdateUser replaces the stored account with the same username.
+	// Returns domainerrors.ErrUserNotFound when missing. When oldUsername is
+	// non-empty and differs from user.Username, the account is renamed
+	// (key migration) and still returns ErrUserAlreadyExists on collision.
+	UpdateUser(user *models.User, oldUsername string) error
+	// DeleteUser removes an account, returning domainerrors.ErrUserNotFound
+	// when missing.
+	DeleteUser(username string) error
 }

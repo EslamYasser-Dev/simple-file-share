@@ -1,6 +1,10 @@
 package config
 
-import "github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+import (
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
+	"os"
+	"strconv"
+)
 
 type EnvConfigProvider struct {
 	port              string
@@ -14,6 +18,10 @@ type EnvConfigProvider struct {
 	enableAuth        bool
 	enableSignup      bool
 	enableGRPC        bool
+	jwtSecret         string
+	jwtTtlSeconds     int
+	storageBackend    string
+	s3                ports.S3Settings
 }
 
 func NewEnvConfigProvider() (*EnvConfigProvider, error) {
@@ -34,6 +42,10 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		enableAuth:        resolveBoolEnv("ENABLE_AUTH", true),
 		enableSignup:      resolveEnableSignup(),
 		enableGRPC:        resolveEnableGRPC(),
+		jwtSecret:         resolveJWTSecret(),
+		jwtTtlSeconds:     resolveJWTTTLSeconds(),
+		storageBackend:    resolveStorageBackend(),
+		s3:                resolveS3Settings(),
 	}, nil
 }
 
@@ -48,5 +60,31 @@ func (p *EnvConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *EnvConfigProvider) EnableTLS() bool             { return p.enableTLS }
 func (p *EnvConfigProvider) EnableAuth() bool            { return p.enableAuth }
 func (p *EnvConfigProvider) EnableSignup() bool          { return p.enableSignup }
+func (p *EnvConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
+func (p *EnvConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
+func (p *EnvConfigProvider) GetStorageBackend() string   { return p.storageBackend }
+func (p *EnvConfigProvider) GetS3Settings() ports.S3Settings {
+	return p.s3
+}
 
 var _ ports.ConfigProvider = (*EnvConfigProvider)(nil)
+
+func resolveJWTSecret() string {
+	defaultSecret := "change-me-in-production"
+	v := os.Getenv("JWT_SECRET")
+	if v != "" {
+		return v
+	}
+	return defaultSecret
+}
+
+func resolveJWTTTLSeconds() int {
+	v := os.Getenv("JWT_TTL_SECONDS")
+	if v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return 3600 // 1 hour default
+}

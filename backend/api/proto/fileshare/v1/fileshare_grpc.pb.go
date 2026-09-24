@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v7.36.2
-// source: fileshare/v1/fileshare.proto
+// source: proto/fileshare/v1/fileshare.proto
 
 package filesharev1
 
@@ -285,7 +285,7 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "fileshare/v1/fileshare.proto",
+	Metadata: "proto/fileshare/v1/fileshare.proto",
 }
 
 const (
@@ -658,5 +658,5 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "fileshare/v1/fileshare.proto",
+	Metadata: "proto/fileshare/v1/fileshare.proto",
 }

@@ -17,9 +17,13 @@ services:
       APP_ENV: production
       PORT: "22010"
       ROOT_DIR: /data
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: changeme
-      ENABLE_SIGNUP: "true"
+      # Required: the server refuses to start in production without a random
+      # JWT_SECRET of at least 32 characters (generate with `openssl rand -hex 32`).
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a random value of at least 32 characters - e.g. openssl rand -hex 32}
+      # Required so a production deployment can never fall back to a default login.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD to a strong password for the bootstrap admin}
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP:-false}"
       ENABLE_GRPC: "true"
       GRPC_PORT: "50051"
       ENABLE_TLS: "false"

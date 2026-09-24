@@ -2,14 +2,23 @@ import { useState } from 'react';
 import { HardDrive, Loader2, Lock } from 'lucide-react';
 import { AppBackground } from '../components/Layout';
 import { useI18n } from '../i18n';
+import { buildUrl } from '../services/api';
 
 interface LoginProps {
   onLogin: (username: string, password: string) => Promise<string | null>;
   signupEnabled?: boolean;
+  oauthProviders?: string[];
   onShowRegister?: () => void;
 }
 
-export function Login({ onLogin, signupEnabled, onShowRegister }: LoginProps) {
+const OAUTH_ICONS: Record<string, string> = {
+  github:
+    'M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.22.66-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02.8-.22 1.65-.33 2.5-.33s1.7.11 2.5.33c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.86v2.75c0 .27.16.57.67.48A10 10 0 0 0 22 12c0-5.52-4.48-10-10-10z',
+  google:
+    'M21.35 11.1H12v2.9h5.35c-.5 2.5-2.6 4.3-5.35 4.3a5.9 5.9 0 1 1 0-11.8c1.5 0 2.85.55 3.9 1.45l2.15-2.15A8.9 8.9 0 1 0 12 20.9c5.15 0 8.7-3.65 8.7-8.8 0-.35-.05-.7-.1-1z',
+};
+
+export function Login({ onLogin, signupEnabled, oauthProviders = [], onShowRegister }: LoginProps) {
   const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +34,9 @@ export function Login({ onLogin, signupEnabled, onShowRegister }: LoginProps) {
     if (err) setError(err);
     setIsSubmitting(false);
   };
+
+  const oauthLabel = (name: string) =>
+    name === 'github' ? t('auth.continueWithGithub') : t('auth.continueWithGoogle');
 
   return (
     <div className="relative flex min-h-screen items-center justify-center px-4 text-slate-100">
@@ -95,6 +107,26 @@ export function Login({ onLogin, signupEnabled, onShowRegister }: LoginProps) {
             {t('auth.signIn')}
           </button>
         </form>
+
+        {oauthProviders.length > 0 && (
+          <div className="glass-panel mt-4 space-y-3 p-6">
+            <p className="text-center text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+              {t('auth.or')}
+            </p>
+            {oauthProviders.map((provider) => (
+              <a
+                key={provider}
+                href={buildUrl(`/api/auth/oauth/${provider}/start`)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+                  <path d={OAUTH_ICONS[provider] ?? OAUTH_ICONS.github} />
+                </svg>
+                {oauthLabel(provider)}
+              </a>
+            ))}
+          </div>
+        )}
 
         {signupEnabled && onShowRegister && (
           <p className="mt-5 text-center text-xs text-slate-500">

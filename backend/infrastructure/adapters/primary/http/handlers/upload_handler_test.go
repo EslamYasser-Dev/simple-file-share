@@ -27,7 +27,7 @@ func newUploadFixture(t *testing.T) *uploadFixture {
 	t.Helper()
 	dir := t.TempDir()
 	index := memory.NewFileIndexRepository()
-	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index)
+	fileRepo := fs.NewIndexedFileRepository(fs.NewLocalFileRepository(dir), index, nil)
 	handler := NewUploadHandler(services.NewUploadService(fileRepo, policy.NewPathScoper(), index, fs.NewUserFileRepository(dir), 0))
 	return &uploadFixture{dir: dir, handler: handler}
 }

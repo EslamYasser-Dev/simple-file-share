@@ -87,3 +87,47 @@ func TestEnvConfigProvider(t *testing.T) {
 		t.Fatalf("expected unlimited uploads by default, got %d", cfg.GetMaxUploadBytes())
 	}
 }
+
+func TestResolveStorageBackend(t *testing.T) {
+	cases := map[string]string{
+		"":           "local",
+		"local":      "local",
+		"filesystem": "local",
+		"s3":         "s3",
+		"S3":         "s3",
+		"unknown":    "unknown",
+	}
+	for in, want := range cases {
+		t.Setenv("STORAGE_BACKEND", in)
+		if got := resolveStorageBackend(); got != want {
+			t.Fatalf("resolveStorageBackend(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveS3Settings(t *testing.T) {
+	t.Setenv("S3_ENDPOINT", "http://127.0.0.1:9000/")
+	t.Setenv("S3_BUCKET", "files")
+	t.Setenv("S3_REGION", "eu-west-1")
+	t.Setenv("S3_ACCESS_KEY", "ak")
+	t.Setenv("S3_SECRET_KEY", "sk")
+	t.Setenv("S3_PREFIX", "/tenant-a/")
+	t.Setenv("S3_PATH_STYLE", "")
+
+	s := resolveS3Settings()
+	if s.Endpoint != "http://127.0.0.1:9000" {
+		t.Fatalf("endpoint = %q", s.Endpoint)
+	}
+	if s.Bucket != "files" || s.Region != "eu-west-1" {
+		t.Fatalf("bucket/region = %q/%q", s.Bucket, s.Region)
+	}
+	if s.AccessKey != "ak" || s.SecretKey != "sk" {
+		t.Fatal("credentials not resolved")
+	}
+	if s.Prefix != "tenant-a" {
+		t.Fatalf("prefix = %q", s.Prefix)
+	}
+	if !s.PathStyle {
+		t.Fatal("custom endpoint should force path-style")
+	}
+}

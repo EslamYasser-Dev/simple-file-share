@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-void: #111110;
+  --color-abyss: #161614;
+  --color-accent: #d4a373;
+  --color-accent-dim: rgba(212, 163, 115, 0.14);
+  --color-paper: #f2efe9;
+  --color-muted: #9a958c;
+}
+
+.rule {
+  border-top: 1px solid rgba(242, 239, 233, 0.12);
+}
+
+.panel {
+  background: #161614;
+  border: 1px solid rgba(242, 239, 233, 0.1);
+}
+
+/* Light product-marketing theme, scoped to the landing page. Tailwind v4
+   utilities read these variables, so flipping them restyles every token-based
+   class inside the scope while the docs keep the dark theme. */
+.light-site {
+  --color-void: #f5f6f8;
+  --color-abyss: #ffffff;
+  --color-paper: #14161b;
+  --color-muted: #575c66;
+  --color-accent: #0f62fe;
+  --color-accent-dim: rgba(15, 98, 254, 0.09);
+  --font-display: "Helvetica Neue", Helvetica, Arial, ui-sans-serif,
+    system-ui, sans-serif;
+}
+
+.light-site .rule {
+  border-top-color: rgba(20, 22, 27, 0.12);
+}
+
+.light-site .panel {
+  background: var(--color-abyss);
+  border-color: rgba(20, 22, 27, 0.1);
+}
+
+.light-site .underline-accent {
+  text-decoration-color: rgba(15, 98, 254, 0.5);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.underline-accent {
+  text-decoration: underline;
+  text-decoration-color: rgba(212, 163, 115, 0.55);
+  text-underline-offset: 0.18em;
+}
+
+.docs a:not(.btn) {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.docs a:not(.btn):hover {
+  color: #e6c9a8;
+}
+
+.docs code:not(pre code) {
+  border-radius: 0.25rem;
+  background: rgba(242, 239, 233, 0.07);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.875em;
+  color: #e8e4db;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

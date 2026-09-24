@@ -3,22 +3,28 @@ package services
 import (
 	"errors"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
 
-// RevokeShareService invalidates a share link. Only the owner (or an admin)
-// may revoke a link.
+// RevokeShareService invalidates a share link. Only the owner (or an account
+// with shares.manage / system view) may revoke a link.
 type RevokeShareService struct {
 	shareRepo ports.ShareRepository
 	scoper    ports.PathScoper
+	bus       *events.Bus
+	roles     *RoleCatalog
 }
 
-func NewRevokeShareService(shareRepo ports.ShareRepository, scoper ports.PathScoper) *RevokeShareService {
-	return &RevokeShareService{shareRepo: shareRepo, scoper: scoper}
+func NewRevokeShareService(shareRepo ports.ShareRepository, scoper ports.PathScoper, roles *RoleCatalog) *RevokeShareService {
+	return &RevokeShareService{shareRepo: shareRepo, scoper: scoper, roles: roles}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *RevokeShareService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 func (s *RevokeShareService) Execute(user *models.User, token string) error {
 	if _, err := valueobjects.NewShareToken(token); err != nil {
@@ -33,11 +39,19 @@ func (s *RevokeShareService) Execute(user *models.User, token string) error {
 		return err
 	}
 
-	if user == nil || user.IsAdmin {
-		return s.shareRepo.Delete(token)
+	if user == nil || user.IsSystemView() || user.HasPermission(models.PermSharesManage, s.roles) {
+		if err := s.shareRepo.Delete(token); err != nil {
+			return err
+		}
+		publishEvent(s.bus, events.TypeShareRevoke, share.Path, user)
+		return nil
 	}
 	if share.Owner != user.Username {
 		return &domainerrors.ForbiddenError{Action: "revoke share", Path: share.Token}
 	}
-	return s.shareRepo.Delete(token)
+	if err := s.shareRepo.Delete(token); err != nil {
+		return err
+	}
+	publishEvent(s.bus, events.TypeShareRevoke, share.Path, user)
+	return nil
 }

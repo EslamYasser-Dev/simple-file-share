@@ -66,7 +66,9 @@ func (s *RegisterUserService) Execute(username, password string) (*models.User, 
 	user := &models.User{
 		Username:     username,
 		PasswordHash: hash,
+		Role:         models.RoleMember,
 		IsAdmin:      false,
+		Enabled:      true,
 		QuotaBytes:   s.defaultQuotaBytes,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -76,6 +78,7 @@ func (s *RegisterUserService) Execute(username, password string) (*models.User, 
 		return nil, err
 	}
 	if count == 0 {
+		user.Role = models.RoleAdmin
 		user.IsAdmin = true
 	}
 

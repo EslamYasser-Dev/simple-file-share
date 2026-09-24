@@ -27,9 +27,11 @@ func toStatus(err error) error {
 	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domainerrors.ErrInvalidCredentials):
-		return status.Error(codes.Unauthenticated, err.Error())
+		return status.Error(codes.Unauthenticated, "authentication failed")
 	case errors.Is(err, domainerrors.ErrUserNotFound):
-		return status.Error(codes.NotFound, err.Error())
+		// Collapse into the same unauthenticated response as bad credentials
+		// so public auth never reveals whether an account exists.
+		return status.Error(codes.Unauthenticated, "authentication failed")
 	case errors.As(err, &notFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.As(err, &validation):

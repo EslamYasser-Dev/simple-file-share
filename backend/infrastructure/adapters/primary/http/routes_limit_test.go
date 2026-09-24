@@ -13,7 +13,7 @@ func TestRegisterRoutesLimitsPublicShare(t *testing.T) {
 		Share: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}),
-	}, nil, false)
+	}, nil, nil, false)
 	// Shape the budget without the (now removed) public setter, since this test
 	// lives in the same package.
 	server.shareLimiter = NewIPLimiter(1, 5)

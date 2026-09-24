@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 const (
@@ -134,6 +136,44 @@ func resolveBoolEnv(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 	return raw != "false" && raw != "0"
+}
+
+// resolveStorageBackend returns "local" or "s3". Unknown values fall back to
+// "local"; callers that need a hard failure validate the raw env themselves.
+func resolveStorageBackend() string {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_BACKEND")))
+	switch raw {
+	case "", "local", "fs", "filesystem":
+		return "local"
+	case "s3":
+		return "s3"
+	default:
+		return raw
+	}
+}
+
+func resolveS3Settings() ports.S3Settings {
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("S3_ENDPOINT")), "/")
+	region := strings.TrimSpace(os.Getenv("S3_REGION"))
+	if region == "" {
+		region = "us-east-1"
+	}
+	pathStyle := resolveBoolEnv("S3_PATH_STYLE", false)
+	if endpoint != "" && !pathStyle {
+		// Custom endpoints (MinIO, R2, Ceph) almost always need path-style.
+		if !strings.Contains(endpoint, "amazonaws.com") {
+			pathStyle = true
+		}
+	}
+	return ports.S3Settings{
+		Endpoint:  endpoint,
+		Bucket:    strings.TrimSpace(os.Getenv("S3_BUCKET")),
+		Region:    region,
+		AccessKey: strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
+		SecretKey: strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
+		Prefix:    strings.Trim(strings.TrimSpace(os.Getenv("S3_PREFIX")), "/"),
+		PathStyle: pathStyle,
+	}
 }
 
 func getEnvFirst(keys []string, fallback string) string {

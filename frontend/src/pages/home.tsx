@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
-import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
-import { buildUrl, authHeader, clearCredentials, api } from '../services/api';
+import { AlertTriangle, ArrowUp, ChevronRight, Download, Eye, FolderPlus, History, Link2, Loader2, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { buildUrl, clearCredentials, api } from '../services/api';
 import type { FileItem } from '../services/api';
 import { FileIcon } from '../components/FileIcon';
 import { FilePreview } from '../components/FilePreview';
 import { Modal } from '../components/Modal';
+import { PendingUploads } from '../components/PendingUploads';
 import { ShareModal } from '../components/ShareModal';
+import { VersionHistory } from '../components/VersionHistory';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n';
 import { useFileStore } from '../store/fileStore';
@@ -26,9 +28,12 @@ export function Home() {
   const navigateTo = useFileStore((s) => s.navigateTo);
   const uploadFiles = useFileStore((s) => s.uploadFiles);
   const deleteItem = useFileStore((s) => s.deleteItem);
+  const isUploading = useFileStore((s) => s.isUploading);
+  const uploadStatus = useFileStore((s) => s.uploadStatus);
   const isAdmin = useAuthStore((s) => s.user?.isAdmin ?? false);
   const account = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const [pendingKey, setPendingKey] = useState(0);
 
   const isShared = scope === 'shared';
   const readOnly = isShared && !isAdmin;
@@ -39,6 +44,7 @@ export function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<FileItem | null>(null);
   const closePreview = useCallback(() => setPreviewItem(null), []);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [, startTransition] = useTransition();
@@ -63,13 +69,16 @@ export function Home() {
     const { uploaded, error: err, cancelled } = await uploadFiles(fileList);
     if (cancelled) {
       info(t('home.uploadCancelled'));
+      setPendingKey((k) => k + 1);
       return;
     }
     if (err) {
       error(err);
+      setPendingKey((k) => k + 1);
       return;
     }
     success(t('home.uploaded', { n: uploaded }));
+    setPendingKey((k) => k + 1);
     void refreshAccountUsage();
   };
 
@@ -98,7 +107,7 @@ export function Home() {
       // Use streaming download to avoid buffering the entire file in memory.
       // Try File System Access API (Chrome/Edge) first for true streaming to disk.
       const url = buildUrl('/api/files/download', { path: item.path });
-      const response = await fetch(url, { headers: authHeader() });
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
         if (response.status === 401) {
           clearCredentials();
@@ -227,6 +236,10 @@ export function Home() {
         <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-200">
           {t('shared.readOnly')}
         </div>
+      )}
+
+      {!readOnly && !isUploading && uploadStatus === 'idle' && (
+        <PendingUploads key={pendingKey} onFinished={() => setPendingKey((k) => k + 1)} />
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -383,6 +396,15 @@ export function Home() {
                   >
                     <Link2 className="h-4 w-4" />
                   </button>
+                  {!item.isDir && (
+                    <button
+                      onClick={() => setHistoryItem(item)}
+                      className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-cyan-300"
+                      title={t('home.history')}
+                    >
+                      <History className="h-4 w-4" />
+                    </button>
+                  )}
                   {!readOnly && (
                     <button
                       onClick={() => setDeleteTarget(item)}
@@ -417,6 +439,13 @@ export function Home() {
       />
 
       <ShareModal item={shareItem} onClose={() => setShareItem(null)} />
+
+      <VersionHistory
+        item={historyItem}
+        readOnly={readOnly}
+        onClose={() => setHistoryItem(null)}
+        onRestored={() => fetchFiles(currentPath)}
+      />
 
       <Modal
         open={deleteTarget !== null}
@@ -467,22 +496,28 @@ function StorageUsage({ used, quota, files }: StorageUsageProps) {
   const pct = quota > 0 ? Math.min(100, (used / quota) * 100) : 0;
   const nearLimit = pct >= 90;
   return (
-    <div className="mt-3 max-w-xs" title={`${formatBytes(used)} / ${formatBytes(quota)}`}>
-      <div className="flex items-center justify-between text-[11px] tabular-nums">
-        <span className="text-slate-400">
+    <div
+      className="mt-3 max-w-xs animate-rise"
+      title={`${formatBytes(used)} / ${formatBytes(quota)}`}
+    >
+      <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums">
+        <span className="min-w-0 flex-1 truncate text-slate-400">
           {t('home.storageUsed', {
             used: formatBytes(used),
             quota: formatBytes(quota),
             files,
           })}
         </span>
-        <span className={nearLimit ? 'font-semibold text-amber-300' : 'text-cyan-300'}>
+        <span
+          className={`shrink-0 ${nearLimit ? 'font-semibold text-amber-300' : 'text-cyan-300'}`}
+          dir="ltr"
+        >
           {Math.round(pct)}%
         </span>
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
         <div
-          className={`h-full rounded-full transition-[width] duration-300 ${
+          className={`h-full rounded-full transition-[width] duration-500 ease-out ${
             nearLimit ? 'bg-amber-400' : 'bg-gradient-to-r from-cyan-300 via-sky-400 to-violet-400'
           }`}
           style={{ width: `${pct}%` }}

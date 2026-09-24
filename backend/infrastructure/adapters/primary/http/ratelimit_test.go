@@ -12,31 +12,43 @@ func TestIPLimiterAllowsBurstThenLimits(t *testing.T) {
 	now := time.Now()
 	limiter.now = func() time.Time { return now }
 
+	// Helper: create a request with the given remote address.
+	makeReq := func(ra string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = ra
+		return req
+	}
+
 	for i := 0; i < 3; i++ {
-		if !limiter.Allow("10.0.0.1") {
+		if !limiter.Allow(makeReq("10.0.0.1")) {
 			t.Fatalf("request %d: expected allowed within burst", i)
 		}
 	}
-	if limiter.Allow("10.0.0.1") {
+	if limiter.Allow(makeReq("10.0.0.1")) {
 		t.Fatal("expected request beyond burst to be rejected")
 	}
 
 	// Advance the clock 1s -> tokens refill by the rate.
 	now = now.Add(time.Second)
-	if !limiter.Allow("10.0.0.1") {
+	if !limiter.Allow(makeReq("10.0.0.1")) {
 		t.Fatal("expected a token after refill")
 	}
 }
 
 func TestIPLimiterIsPerAddress(t *testing.T) {
 	limiter := NewIPLimiter(1, 1)
-	if !limiter.Allow("10.0.0.1") {
+	makeReq := func(ra string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = ra
+		return req
+	}
+	if !limiter.Allow(makeReq("10.0.0.1")) {
 		t.Fatal("address 1 must start with its own full budget")
 	}
-	if limiter.Allow("10.0.0.1") {
+	if limiter.Allow(makeReq("10.0.0.1")) {
 		t.Fatal("address 1 must be out of budget")
 	}
-	if !limiter.Allow("10.0.0.2") {
+	if !limiter.Allow(makeReq("10.0.0.2")) {
 		t.Fatal("address 2 must start with its own full budget")
 	}
 }
