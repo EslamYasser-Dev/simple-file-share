@@ -116,6 +116,112 @@ paths:
         "400":
           description: Missing or invalid query
 
+  /api/events:
+    get:
+      summary: Live filesystem events (Server-Sent Events)
+      description: |
+        Long-lived SSE stream of upload/update/mkdir/delete/share/restore/quota
+        events for the authenticated user. Browser clients use the HttpOnly
+        session cookie; API clients may send Authorization: Bearer.
+      responses:
+        "200":
+          description: text/event-stream of JSON event frames
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  data: {"type":"upload","path":"a.txt","user":"alice","at":"2026-01-01T00:00:00Z"}
+        "401":
+          description: Unauthorized
+        "405":
+          description: Method not allowed
+
+  /api/p2p/stream:
+    get:
+      summary: WebRTC signaling stream (Server-Sent Events)
+      description: |
+        Registers this browser tab as a peer session. Frames: hello (own
+        peerId + current peers), peers (presence updates), signal (incoming
+        offer/answer/candidate/bye). File bytes never pass through this API.
+      responses:
+        "200":
+          description: text/event-stream of signaling frames
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: hello
+                  data: {"type":"hello","peerId":"a1b2","peers":[],"at":"2026-01-01T00:00:00Z"}
+        "401":
+          description: Unauthorized
+        "405":
+          description: Method not allowed
+
+  /api/p2p/peers:
+    get:
+      summary: List connected P2P peer sessions
+      responses:
+        "200":
+          description: Connected peers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  peers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        user:
+                          type: string
+        "401":
+          description: Unauthorized
+
+  /api/p2p/signal:
+    post:
+      summary: Relay one WebRTC signal to a peer
+      parameters:
+        - in: header
+          name: X-Peer-Id
+          required: true
+          schema:
+            type: string
+          description: Own peer id from the hello frame on /api/p2p/stream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, kind]
+              properties:
+                to:
+                  type: string
+                  description: Destination peer id
+                kind:
+                  type: string
+                  enum: [offer, answer, candidate, bye]
+                payload:
+                  type: object
+                  additionalProperties: true
+                  description: Opaque SDP or ICE candidate JSON
+      responses:
+        "202":
+          description: Signal queued for delivery
+        "400":
+          description: Invalid body or signal
+        "403":
+          description: X-Peer-Id does not match a live session for the caller
+        "404":
+          description: Destination peer offline
+        "401":
+          description: Unauthorized
+
   /api/upload:
     post:
       summary: Upload one or more files
@@ -143,6 +249,178 @@ paths:
         "401":
           description: Unauthorized
 
+  /api/uploads:
+    get:
+      summary: List active resumable upload sessions for the caller
+      description: |
+        Pending / interrupted uploads (offset < size or ready to complete)
+        that can be resumed after a reload. Sessions are scoped to the
+        authenticated owner (or the system view when auth is disabled).
+      responses:
+        "200":
+          description: Active sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    fingerprint:
+                      type: string
+                    destination:
+                      type: string
+                    filename:
+                      type: string
+                    size:
+                      type: integer
+                      format: int64
+                    offset:
+                      type: integer
+                      format: int64
+                    updatedAt:
+                      type: string
+                      format: date-time
+                    expiresAt:
+                      type: string
+                      format: date-time
+        "401":
+          description: Unauthorized
+    post:
+      summary: Create (or resume) a resumable upload session
+      description: |
+        Returns the session id, current staged offset, and preferred chunkSize.
+        When fingerprint matches an existing active session for the caller,
+        that session is returned so the client can continue from offset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, size]
+              properties:
+                path:
+                  type: string
+                  description: Destination directory (virtual path)
+                filename:
+                  type: string
+                size:
+                  type: integer
+                  format: int64
+                fingerprint:
+                  type: string
+                  description: Client identity for resume (path|name|size|mtime)
+      responses:
+        "200":
+          description: Session created or resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadSession"
+        "401":
+          description: Unauthorized
+        "413":
+          description: Size exceeds quota or MAX_UPLOAD_BYTES
+
+  /api/uploads/{id}:
+    get:
+      summary: Get resumable upload session status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadSession"
+        "404":
+          description: Unknown or expired session
+    patch:
+      summary: Append one chunk to a resumable upload
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Upload-Offset
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Byte offset where this chunk begins (must equal session offset)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Chunk accepted; returns updated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadSession"
+        "409":
+          description: Offset mismatch (body includes expected)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  expected:
+                    type: integer
+                    format: int64
+        "404":
+          description: Unknown or expired session
+    delete:
+      summary: Abort a resumable upload and discard staged bytes
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session deleted
+        "404":
+          description: Unknown session
+
+  /api/uploads/{id}/complete:
+    post:
+      summary: Promote staged bytes to the final destination path
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upload complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+        "409":
+          description: Session not fully staged
+        "404":
+          description: Unknown or expired session
+
   /api/directories:
     post:
       summary: Create a directory
@@ -161,6 +439,300 @@ paths:
           description: Directory created
         "401":
           description: Unauthorized
+
+  /api/auth/password:
+    post:
+      summary: Change the authenticated user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        "200":
+          description: Password changed
+        "400":
+          description: Validation failed
+        "401":
+          description: Invalid credentials
+
+  /api/admin/users:
+    get:
+      summary: List accounts with storage usage (users.read)
+      responses:
+        "200":
+          description: Array of user stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserStats"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+    post:
+      summary: Create an account (users.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  example: member
+                enabled:
+                  type: boolean
+                  default: true
+                quotaBytes:
+                  type: integer
+                  format: int64
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Validation failed
+        "409":
+          description: Username already exists
+        "403":
+          description: Forbidden
+
+  /api/admin/users/{username}:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: Update profile, role, or enablement (users.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: New username (rename migrates storage and shares)
+                role:
+                  type: string
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated account
+        "400":
+          description: Validation failed
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    delete:
+      summary: Delete an account and cascade files/shares (users.delete)
+      responses:
+        "200":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/users/{username}/quota:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Set an account storage quota (quota.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quota]
+              properties:
+                quota:
+                  type: string
+                  example: 2GB
+      responses:
+        "200":
+          description: Updated user stats
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/users/{username}/password:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Admin password reset (users.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Password updated
+        "400":
+          description: Validation failed
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/roles:
+    get:
+      summary: List built-in and custom roles (roles.manage)
+      responses:
+        "200":
+          description: Role list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "403":
+          description: Forbidden
+    post:
+      summary: Create or update a custom role (roles.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertRoleRequest"
+      responses:
+        "200":
+          description: Saved role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "400":
+          description: Validation failed (built-ins rejected)
+        "403":
+          description: Forbidden
+
+  /api/admin/roles/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      summary: Delete a custom role when unused (roles.manage)
+      responses:
+        "200":
+          description: Deleted
+        "400":
+          description: Built-in or still assigned
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/analytics/overview:
+    get:
+      summary: Usage overview rollup (users.read)
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsOverview"
+        "403":
+          description: Forbidden
+
+  /api/admin/analytics/timeline:
+    get:
+      summary: Daily activity timeline (users.read)
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Timeline buckets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnalyticsBucket"
+        "403":
+          description: Forbidden
+
+  /api/admin/analytics/top-files:
+    get:
+      summary: Most-touched paths (users.read)
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Top files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnalyticsTopFile"
+        "403":
+          description: Forbidden
 
   /health:
     get:
@@ -195,6 +767,70 @@ components:
         modified:
           type: string
           format: date-time
+    User:
+      type: object
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          example: admin
+        isAdmin:
+          type: boolean
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    UserStats:
+      type: object
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+        isAdmin:
+          type: boolean
+        enabled:
+          type: boolean
+        quotaBytes:
+          type: integer
+          format: int64
+        files:
+          type: integer
+        size:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+    Role:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        builtIn:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            type: string
+          example: [users.read, users.create]
+    UpsertRoleRequest:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{1,31}$'
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
     UploadResult:
       type: object
       properties:
@@ -203,6 +839,26 @@ components:
         size:
           type: integer
           format: int64
+    UploadSession:
+      type: object
+      properties:
+        id:
+          type: string
+        offset:
+          type: integer
+          format: int64
+          description: Bytes already staged
+        size:
+          type: integer
+          format: int64
+          description: Total declared size
+        chunkSize:
+          type: integer
+          format: int64
+          description: Preferred chunk size for PATCH bodies
+        expiresAt:
+          type: string
+          format: date-time
     HealthResponse:
       type: object
       properties:
@@ -212,3 +868,64 @@ components:
         uptime:
           type: string
           example: 2m30s
+    AnalyticsOverview:
+      type: object
+      properties:
+        totalEvents:
+          type: integer
+          format: int64
+        uploads:
+          type: integer
+          format: int64
+        downloads:
+          type: integer
+          format: int64
+        deletes:
+          type: integer
+          format: int64
+        shares:
+          type: integer
+          format: int64
+        logins:
+          type: integer
+          format: int64
+        activeUsers:
+          type: integer
+          format: int64
+        bytesUploaded:
+          type: integer
+          format: int64
+        byType:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        windowStart:
+          type: string
+          format: date-time
+        windowEnd:
+          type: string
+          format: date-time
+    AnalyticsBucket:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        count:
+          type: integer
+          format: int64
+        bytes:
+          type: integer
+          format: int64
+    AnalyticsTopFile:
+      type: object
+      properties:
+        path:
+          type: string
+        count:
+          type: integer
+          format: int64
+        bytes:
+          type: integer
+          format: int64

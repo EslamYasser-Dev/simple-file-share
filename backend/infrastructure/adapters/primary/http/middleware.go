@@ -72,8 +72,8 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Add("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Upload-Offset")
 			w.Header().Set("Access-Control-Max-Age", "600")
 		}
 
@@ -108,10 +108,14 @@ func originAllowed(r *http.Request, origin string) bool {
 
 func loggingMiddleware(next http.Handler, logger ports.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("request", "method", r.Method, "path", r.URL.Path)
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		logger.Info("response", "method", r.Method, "path", r.URL.Path, "status", rw.status)
+		logger.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.status,
+			"bytes", rw.bytesWritten,
+		)
 	})
 }
 

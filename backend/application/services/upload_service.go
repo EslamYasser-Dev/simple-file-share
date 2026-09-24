@@ -5,6 +5,7 @@ import (
 	"io"
 	"path"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -21,11 +22,15 @@ type UploadService struct {
 	index    ports.FileIndexRepository
 	users    ports.UserRepository
 	maxBytes int64 // <= 0 means unlimited
+	bus      *events.Bus
 }
 
 func NewUploadService(fileRepo ports.FileRepository, scoper ports.PathScoper, index ports.FileIndexRepository, users ports.UserRepository, maxBytes int64) *UploadService {
 	return &UploadService{fileRepo: fileRepo, scoper: scoper, index: index, users: users, maxBytes: maxBytes}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *UploadService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([]models.FileUpload, error) {
 	var uploads []models.FileUpload
@@ -98,10 +103,12 @@ func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([
 			continue
 		}
 
+		virtualName := s.scoper.PhysicalToVirtual(user, physical)
 		uploads = append(uploads, models.FileUpload{
-			Filename: s.scoper.PhysicalToVirtual(user, physical),
+			Filename: virtualName,
 			Size:     written,
 		})
+		publishEventBytes(s.bus, events.TypeUpload, virtualName, user, written)
 	}
 
 	if len(execErrors) > 0 && len(uploads) == 0 {

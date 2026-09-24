@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 )
@@ -12,11 +13,15 @@ import (
 type DownloadService struct {
 	files *DownloadFileService
 	zips  *DownloadZipService
+	bus   *events.Bus
 }
 
 func NewDownloadService(files *DownloadFileService, zips *DownloadZipService) *DownloadService {
 	return &DownloadService{files: files, zips: zips}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *DownloadService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 // Execute streams a directory as a ZIP archive, or a regular file as-is. The
 // choice is made from the target's actual type — never from a ".zip" suffix,
@@ -24,6 +29,7 @@ func NewDownloadService(files *DownloadFileService, zips *DownloadZipService) *D
 func (s *DownloadService) Execute(user *models.User, path string) (*models.Download, error) {
 	download, err := s.zips.Execute(user, path)
 	if err == nil {
+		publishEvent(s.bus, events.TypeDownload, path, user)
 		return download, nil
 	}
 
@@ -31,5 +37,10 @@ func (s *DownloadService) Execute(user *models.User, path string) (*models.Downl
 	if !errors.As(err, &notDir) {
 		return nil, err
 	}
-	return s.files.Execute(user, path)
+	download, err = s.files.Execute(user, path)
+	if err != nil {
+		return nil, err
+	}
+	publishEvent(s.bus, events.TypeDownload, path, user)
+	return download, nil
 }

@@ -23,4 +23,12 @@ type UserRepository interface {
 	// SetQuotaBytes updates an account's storage quota in bytes. 0 means
 	// unlimited.
 	SetQuotaBytes(username string, quotaBytes int64) error
+	// UpdateUser replaces the stored account with the same username.
+	// Returns domainerrors.ErrUserNotFound when missing. When oldUsername is
+	// non-empty and differs from user.Username, the account is renamed
+	// (key migration) and still returns ErrUserAlreadyExists on collision.
+	UpdateUser(user *models.User, oldUsername string) error
+	// DeleteUser removes an account, returning domainerrors.ErrUserNotFound
+	// when missing.
+	DeleteUser(username string) error
 }

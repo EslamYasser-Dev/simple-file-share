@@ -39,8 +39,8 @@ func newShareFixture(t *testing.T) *shareFixture {
 		shareRepo: shareRepo,
 		scoper:    scoper,
 		create:    NewCreateShareService(fileRepo, shareRepo, scoper),
-		list:      NewListSharesService(shareRepo, scoper),
-		revoke:    NewRevokeShareService(shareRepo, scoper),
+		list:      NewListSharesService(shareRepo, scoper, NewRoleCatalog(nil)),
+		revoke:    NewRevokeShareService(shareRepo, scoper, NewRoleCatalog(nil)),
 		resolve:   NewResolveShareService(shareRepo, scoper, downloadService),
 	}
 }

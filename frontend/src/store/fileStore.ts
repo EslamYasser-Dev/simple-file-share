@@ -8,10 +8,30 @@ export interface UploadResult {
   error?: string;
   /** True when the user cancelled the upload (not an error). */
   cancelled?: boolean;
+  /** True when the user paused the upload (batch still held in memory). */
+  paused?: boolean;
 }
 
 /** Module-level handle to the in-flight upload so `cancelUpload` can abort it. */
 let activeUploadController: AbortController | null = null;
+
+/** Pause gate shared with api.uploadFile between chunks. */
+const pauseGate = {
+  paused: false,
+  waiters: [] as Array<() => void>,
+};
+
+function wakePauseWaiters(): void {
+  const waiters = pauseGate.waiters.splice(0, pauseGate.waiters.length);
+  for (const wake of waiters) wake();
+}
+
+function awaitResumeIfPaused(): Promise<void> {
+  if (!pauseGate.paused) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    pauseGate.waiters.push(resolve);
+  });
+}
 
 let uploadBatchSeq = 0;
 
@@ -34,13 +54,18 @@ export interface ActiveUpload {
   files: ActiveUploadFile[];
 }
 
+export type UploadRunStatus = 'idle' | 'uploading' | 'paused';
+
 /** Which virtual root the file browser is currently operating in. */
 export type FileScope = 'files' | 'shared';
 
 /** Translate a browser-relative path into the virtual path the API expects. */
 function scopePath(scope: FileScope, path: string): string {
   if (scope !== 'shared') return path;
-  return path ? path : 'shared';
+  // Always prefix shared/ (strip any accidental leading shared/ first) so
+  // createDirectory at the shared root lands in shared/, not the private home.
+  const clean = path.replace(/^shared\//, '');
+  return clean ? `shared/${clean}` : 'shared';
 }
 
 function hasDuplicate(values: string[]): boolean {
@@ -62,6 +87,8 @@ interface FileState {
   /** Smoothed upload rate in bytes per second (0 when idle). */
   uploadSpeed: number;
   isUploading: boolean;
+  /** Batch run state: uploading vs paused (held in memory for resume). */
+  uploadStatus: UploadRunStatus;
   /** Details shown by the floating upload indicator; null when idle. */
   activeUpload: ActiveUpload | null;
 
@@ -74,7 +101,11 @@ interface FileState {
   /** Navigate to the parent directory of the current path. */
   goUp: () => void;
 
-  uploadFiles: (fileList: FileList, path?: string) => Promise<UploadResult>;
+  uploadFiles: (fileList: FileList | File[], path?: string) => Promise<UploadResult>;
+  /** Pause the in-flight batch between chunks; File handles stay in memory. */
+  pauseUpload: () => void;
+  /** Continue a paused batch from the last staged offset. */
+  resumeUpload: () => void;
   /** Abort the in-flight upload, if any. */
   cancelUpload: () => void;
   createDirectory: (name: string) => Promise<ApiResponse>;
@@ -115,6 +146,7 @@ export const useFileStore = create<FileState>()((set, get) => ({
   uploadProgress: 0,
   uploadSpeed: 0,
   isUploading: false,
+  uploadStatus: 'idle',
   activeUpload: null,
 
   fetchFiles: async (path = '') => {
@@ -180,6 +212,8 @@ export const useFileStore = create<FileState>()((set, get) => ({
     const batchId = ++uploadBatchSeq;
     const controller = new AbortController();
     activeUploadController = controller;
+    pauseGate.paused = false;
+    wakePauseWaiters();
 
     // Upload distinct destinations concurrently, but keep duplicate target
     // paths sequential so concurrent writes cannot race on the same file.
@@ -227,8 +261,9 @@ export const useFileStore = create<FileState>()((set, get) => ({
 
       set({
         isUploading: true,
+        uploadStatus: pauseGate.paused ? 'paused' : 'uploading',
         uploadProgress: Math.min(100, Math.round(percent)),
-        uploadSpeed: Math.max(0, smoothedSpeed),
+        uploadSpeed: pauseGate.paused ? 0 : Math.max(0, smoothedSpeed),
         error: null,
         activeUpload: {
           totalFiles: files.length,
@@ -250,8 +285,22 @@ export const useFileStore = create<FileState>()((set, get) => ({
       publish();
 
       try {
+        while (pauseGate.paused && !controller.signal.aborted) {
+          await awaitResumeIfPaused();
+        }
+        if (controller.signal.aborted) {
+          statuses[index] = 'queued';
+          publish();
+          return;
+        }
+
         const result = await api.uploadFile(files[index], destination, {
           signal: controller.signal,
+          awaitResume: async () => {
+            while (pauseGate.paused && !controller.signal.aborted) {
+              await awaitResumeIfPaused();
+            }
+          },
           onProgress: (loaded) => {
             loadedBytes[index] = loaded;
             publish();
@@ -280,6 +329,10 @@ export const useFileStore = create<FileState>()((set, get) => ({
     let pendingIndex = 0;
     const worker = async (): Promise<void> => {
       while (!firstError && !userCancelled) {
+        while (pauseGate.paused && !controller.signal.aborted && !firstError && !userCancelled) {
+          await awaitResumeIfPaused();
+        }
+        if (firstError || userCancelled || controller.signal.aborted) return;
         const index = pendingIndex;
         pendingIndex += 1;
         if (index >= files.length) return;
@@ -299,6 +352,10 @@ export const useFileStore = create<FileState>()((set, get) => ({
       if (firstError) {
         throw firstError;
       }
+      // If the last action was a pause with nothing left, still report paused.
+      if (pauseGate.paused) {
+        return { uploaded: completedCount, paused: true };
+      }
       await get().fetchFiles(target);
       return { uploaded: completedCount };
     } catch (e) {
@@ -311,12 +368,35 @@ export const useFileStore = create<FileState>()((set, get) => ({
     } finally {
       if (batchId === uploadBatchSeq) {
         activeUploadController = null;
-        set({ uploadProgress: 0, uploadSpeed: 0, isUploading: false, activeUpload: null });
+        pauseGate.paused = false;
+        wakePauseWaiters();
+        set({
+          uploadProgress: 0,
+          uploadSpeed: 0,
+          isUploading: false,
+          uploadStatus: 'idle',
+          activeUpload: null,
+        });
       }
     }
   },
 
+  pauseUpload: () => {
+    if (!get().isUploading || pauseGate.paused) return;
+    pauseGate.paused = true;
+    set({ uploadStatus: 'paused', uploadSpeed: 0 });
+  },
+
+  resumeUpload: () => {
+    if (!get().isUploading || !pauseGate.paused) return;
+    pauseGate.paused = false;
+    set({ uploadStatus: 'uploading' });
+    wakePauseWaiters();
+  },
+
   cancelUpload: () => {
+    pauseGate.paused = false;
+    wakePauseWaiters();
     activeUploadController?.abort();
   },
 

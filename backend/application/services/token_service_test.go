@@ -28,7 +28,7 @@ func TestTokenServiceLoginAndAuthenticate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,7 +52,7 @@ func TestTokenServiceLoginAndAuthenticate(t *testing.T) {
 func TestTokenServiceLoginRejectsBadPassword(t *testing.T) {
 	tokens, users, hasher := newTokenServiceFixture(t)
 	hash, _ := hasher.Hash("secret")
-	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()})
+	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()})
 
 	if _, err := tokens.Login("alice", "wrong"); err == nil {
 		t.Fatal("expected invalid credentials")
@@ -62,7 +62,7 @@ func TestTokenServiceLoginRejectsBadPassword(t *testing.T) {
 func TestTokenServiceRefreshRotates(t *testing.T) {
 	tokens, users, hasher := newTokenServiceFixture(t)
 	hash, _ := hasher.Hash("secret")
-	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()})
+	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()})
 
 	pair, err := tokens.Login("alice", "secret")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestTokenServiceRefreshRotates(t *testing.T) {
 func TestTokenServiceRevoke(t *testing.T) {
 	tokens, users, hasher := newTokenServiceFixture(t)
 	hash, _ := hasher.Hash("secret")
-	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()})
+	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()})
 
 	pair, _ := tokens.Login("alice", "secret")
 	if err := tokens.Revoke(pair.AccessToken); err != nil {

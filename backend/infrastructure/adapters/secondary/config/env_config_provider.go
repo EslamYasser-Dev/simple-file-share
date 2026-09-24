@@ -20,6 +20,8 @@ type EnvConfigProvider struct {
 	enableGRPC        bool
 	jwtSecret         string
 	jwtTtlSeconds     int
+	storageBackend    string
+	s3                ports.S3Settings
 }
 
 func NewEnvConfigProvider() (*EnvConfigProvider, error) {
@@ -42,6 +44,8 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		enableGRPC:        resolveEnableGRPC(),
 		jwtSecret:         resolveJWTSecret(),
 		jwtTtlSeconds:     resolveJWTTTLSeconds(),
+		storageBackend:    resolveStorageBackend(),
+		s3:                resolveS3Settings(),
 	}, nil
 }
 
@@ -58,6 +62,10 @@ func (p *EnvConfigProvider) EnableAuth() bool            { return p.enableAuth }
 func (p *EnvConfigProvider) EnableSignup() bool          { return p.enableSignup }
 func (p *EnvConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
 func (p *EnvConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
+func (p *EnvConfigProvider) GetStorageBackend() string   { return p.storageBackend }
+func (p *EnvConfigProvider) GetS3Settings() ports.S3Settings {
+	return p.s3
+}
 
 var _ ports.ConfigProvider = (*EnvConfigProvider)(nil)
 

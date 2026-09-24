@@ -1,9 +1,41 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "GE SS Text";
+  src: url("/fonts/GE-SS-Text-Light.woff") format("woff");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GE SS Text";
+  src: url("/fonts/GE-SS-Text-Medium.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GE SS Text";
+  src: url("/fonts/GE-SS-Text-Medium.woff") format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GE SS Text";
+  src: url("/fonts/GE-SS-Text-Bold.woff") format("woff");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-arabic: "GE SS Two", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "GE SS Text", "Space Grotesk", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "GE SS Text", "Inter", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --font-arabic: "GE SS Text", "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
 
   --color-void: #04050c;
   --color-abyss: #080b18;
@@ -21,20 +53,44 @@
   --animate-slide-in: slide-in 0.25s ease-out;
   --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-spin: spin 1s linear infinite;
+  --animate-pop: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-fade-in: fade-in 0.3s ease-out both;
+  --animate-scale-in: scale-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shimmer-bar: shimmer-bar 1.8s ease-in-out infinite;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
+@keyframes pop {
+  0% { opacity: 0; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer-bar {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 @keyframes slide-in {
   from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes aurora {
@@ -116,6 +172,7 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   h1,
@@ -123,6 +180,27 @@
   h3 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
+  }
+
+  /* Arabic UI: prefer the Arabic family for body + headings, and drop Latin
+     optical tracking that tightens Arabic letterforms. Filenames stay LTR. */
+  html[lang="ar"] body,
+  html[lang="ar"] button,
+  html[lang="ar"] input,
+  html[lang="ar"] select,
+  html[lang="ar"] textarea {
+    font-family: var(--font-arabic);
+  }
+
+  html[lang="ar"] h1,
+  html[lang="ar"] h2,
+  html[lang="ar"] h3 {
+    font-family: var(--font-arabic);
+    letter-spacing: 0;
+  }
+
+  html[lang="ar"] {
+    font-feature-settings: "kern" 1;
   }
 
   ::selection {
@@ -378,3 +456,30 @@ html.light .dark-surface .text-slate-100,
 html.light .dark-surface .text-slate-200 {
   color: #e2e8f0;
 }
+
+/* Upload toast: theme-aware surface. Dark keeps the glassy navy; light flips
+   to a translucent white card so text ink (remapped above) stays readable. */
+.upload-toast {
+  background: rgba(5, 8, 22, 0.92);
+  border-color: rgba(34, 211, 238, 0.25);
+}
+
+html.light .upload-toast {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 18px 50px -20px rgba(15, 23, 42, 0.35);
+  color: #0f172a;
+}
+
+html.light .upload-toast .text-slate-100 { color: #0f172a; }
+html.light .upload-toast .text-slate-300 { color: #334155; }
+html.light .upload-toast .text-slate-400 { color: #64748b; }
+html.light .upload-toast .text-slate-500 { color: #94a3b8; }
+html.light .upload-toast .text-cyan-200 { color: #155e75; }
+html.light .upload-toast .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05); }
+html.light .upload-toast .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08); }
+html.light .upload-toast .border-white\/10 { border-color: rgba(15, 23, 42, 0.1); }
+html.light .upload-toast .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.1); }
+html.light .upload-toast .hover\:text-white:hover { color: #0f172a; }
+html.light .upload-toast .bg-slate-600 { background-color: #94a3b8; }
+

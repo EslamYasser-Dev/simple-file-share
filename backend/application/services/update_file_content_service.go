@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -16,11 +17,15 @@ import (
 type UpdateFileContentService struct {
 	fileRepo ports.FileRepository
 	scoper   ports.PathScoper
+	bus      *events.Bus
 }
 
 func NewUpdateFileContentService(fileRepo ports.FileRepository, scoper ports.PathScoper) *UpdateFileContentService {
 	return &UpdateFileContentService{fileRepo: fileRepo, scoper: scoper}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *UpdateFileContentService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 func (s *UpdateFileContentService) Execute(user *models.User, path, content string) (int64, error) {
 	fp, err := valueobjects.NewFilePath(path)
@@ -50,5 +55,9 @@ func (s *UpdateFileContentService) Execute(user *models.User, path, content stri
 	}
 
 	reader := io.NopCloser(strings.NewReader(content))
-	return s.fileRepo.WriteFile(physical, reader)
+	written, err := s.fileRepo.WriteFile(physical, reader)
+	if err == nil {
+		publishEvent(s.bus, events.TypeUpdate, path, user)
+	}
+	return written, err
 }

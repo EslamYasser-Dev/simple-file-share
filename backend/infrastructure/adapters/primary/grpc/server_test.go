@@ -69,7 +69,7 @@ func newGRPCFixture(t *testing.T, enableAuth bool) *grpcFixture {
 	infoService := services.NewGetFileInfoService(fileRepo, scoper)
 	searchService := services.NewSearchFilesService(index, scoper, nil)
 	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, true, 0)
-	usersService := services.NewListUsersService(userRepo, index, scoper)
+	usersService := services.NewListUsersService(userRepo, index, scoper, services.NewRoleCatalog(nil))
 
 	authService := NewAuthService(registerService, usersService, authenticateService, true)
 	fileService := NewFileService(

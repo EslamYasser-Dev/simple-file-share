@@ -10,22 +10,29 @@ import (
 
 type UserResponse struct {
 	Username  string `json:"username"`
+	Role      string `json:"role,omitempty"`
 	IsAdmin   bool   `json:"isAdmin"`
+	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 type MeResponse struct {
-	Username   string `json:"username,omitempty"`
-	IsAdmin    bool   `json:"isAdmin"`
-	QuotaBytes int64  `json:"quotaBytes"`
-	Size       int64  `json:"size"`
-	Files      int    `json:"files"`
-	CreatedAt  string `json:"createdAt,omitempty"`
+	Username    string   `json:"username,omitempty"`
+	Role        string   `json:"role,omitempty"`
+	IsAdmin     bool     `json:"isAdmin"`
+	Enabled     bool     `json:"enabled"`
+	Permissions []string `json:"permissions,omitempty"`
+	QuotaBytes  int64    `json:"quotaBytes"`
+	Size        int64    `json:"size"`
+	Files       int      `json:"files"`
+	CreatedAt   string   `json:"createdAt,omitempty"`
 }
 
 type UserStatsResponse struct {
 	Username   string `json:"username"`
+	Role       string `json:"role,omitempty"`
 	IsAdmin    bool   `json:"isAdmin"`
+	Enabled    bool   `json:"enabled"`
 	QuotaBytes int64  `json:"quotaBytes,omitempty"`
 	CreatedAt  string `json:"createdAt,omitempty"`
 	Files      int    `json:"files"`
@@ -68,7 +75,9 @@ func FromUser(u *models.User) UserResponse {
 	}
 	return UserResponse{
 		Username:  strings.TrimSpace(u.Username),
+		Role:      u.Role,
 		IsAdmin:   u.IsAdmin,
+		Enabled:   u.Enabled,
 		CreatedAt: formatTime(u.CreatedAt),
 	}
 }
@@ -78,7 +87,9 @@ func FromUserStats(stats []models.UserStats) []UserStatsResponse {
 	for _, s := range stats {
 		out = append(out, UserStatsResponse{
 			Username:   s.Username,
+			Role:       s.Role,
 			IsAdmin:    s.IsAdmin,
+			Enabled:    s.Enabled,
 			QuotaBytes: s.QuotaBytes,
 			CreatedAt:  formatTime(s.CreatedAt),
 			Files:      s.Files,
@@ -90,12 +101,15 @@ func FromUserStats(stats []models.UserStats) []UserStatsResponse {
 
 func FromUserStatsSingle(s models.UserStats) MeResponse {
 	return MeResponse{
-		Username:   s.Username,
-		IsAdmin:    s.IsAdmin,
-		QuotaBytes: s.QuotaBytes,
-		Size:       s.Size,
-		Files:      s.Files,
-		CreatedAt:  formatTime(s.CreatedAt),
+		Username:    s.Username,
+		Role:        s.Role,
+		IsAdmin:     s.IsAdmin,
+		Enabled:     s.Enabled,
+		Permissions: models.AllPermissionsIfAdmin(s.IsAdmin),
+		QuotaBytes:  s.QuotaBytes,
+		Size:        s.Size,
+		Files:       s.Files,
+		CreatedAt:   formatTime(s.CreatedAt),
 	}
 }
 

@@ -154,7 +154,9 @@ func (s *OAuthLoginService) upsert(provider string, profile *auth.OAuthProfile) 
 	user := &models.User{
 		Username:      username,
 		PasswordHash:  "",
+		Role:          models.RoleMember,
 		IsAdmin:       false,
+		Enabled:       true,
 		QuotaBytes:    s.defaultQuotaBytes,
 		CreatedAt:     time.Now().UTC(),
 		OAuthProvider: provider,
@@ -165,6 +167,7 @@ func (s *OAuthLoginService) upsert(provider string, profile *auth.OAuthProfile) 
 		return nil, err
 	}
 	if count == 0 {
+		user.Role = models.RoleAdmin
 		user.IsAdmin = true
 	}
 	if err := s.users.CreateUser(user); err != nil {

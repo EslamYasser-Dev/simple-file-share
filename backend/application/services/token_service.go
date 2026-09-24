@@ -3,6 +3,7 @@ package services
 import (
 	"time"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -20,18 +21,27 @@ type TokenService struct {
 	auth   *AuthenticateService
 	tokens ports.TokenManager
 	users  ports.UserRepository
+	bus    *events.Bus
 }
 
 func NewTokenService(auth *AuthenticateService, tokens ports.TokenManager, users ports.UserRepository) *TokenService {
 	return &TokenService{auth: auth, tokens: tokens, users: users}
 }
 
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *TokenService) SetEventBus(bus *events.Bus) { s.bus = bus }
+
 func (s *TokenService) Login(username, password string) (*TokenPair, error) {
 	user, err := s.auth.Execute(username, password)
 	if err != nil {
 		return nil, err
 	}
-	return s.IssueFor(user)
+	pair, err := s.IssueFor(user)
+	if err != nil {
+		return nil, err
+	}
+	publishEvent(s.bus, events.TypeLogin, "", user)
+	return pair, nil
 }
 
 func (s *TokenService) IssueFor(user *models.User) (*TokenPair, error) {
@@ -51,6 +61,9 @@ func (s *TokenService) Authenticate(token string) (*models.User, error) {
 	if err != nil {
 		return nil, domainerrors.ErrInvalidCredentials
 	}
+	if !user.Enabled {
+		return nil, domainerrors.ErrInvalidCredentials
+	}
 	return user, nil
 }
 
@@ -61,6 +74,9 @@ func (s *TokenService) Refresh(token string) (*TokenPair, error) {
 	}
 	user, err := s.users.FindByUsername(claims.Subject)
 	if err != nil {
+		return nil, domainerrors.ErrInvalidCredentials
+	}
+	if !user.Enabled {
 		return nil, domainerrors.ErrInvalidCredentials
 	}
 	s.tokens.Revoke(claims.ID, claims.ExpiresAt)

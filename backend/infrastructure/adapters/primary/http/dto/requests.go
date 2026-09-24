@@ -54,3 +54,14 @@ type TokenRequest struct {
 type RefreshRequest struct {
 	AccessToken string `json:"accessToken"`
 }
+
+// CreateUploadSessionRequest is the body of POST /api/uploads. Path is the
+// destination directory (virtual path); Filename is the base name. Size is
+// the total byte length the client will send. Fingerprint is an optional
+// client-computed identity (name|size|mtime|path) used to resume after reload.
+type CreateUploadSessionRequest struct {
+	Path        string `json:"path"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}

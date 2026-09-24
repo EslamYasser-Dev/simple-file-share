@@ -10,6 +10,8 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
+
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 )
 
 // maxShareValidity bounds the allowed link lifetime so a drifting clock or a
@@ -25,6 +27,7 @@ type CreateShareService struct {
 	scoper    ports.PathScoper
 	now       func() time.Time
 	tokenLen  int
+	bus       *events.Bus
 }
 
 func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareRepository, scoper ports.PathScoper) *CreateShareService {
@@ -36,6 +39,9 @@ func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareR
 		tokenLen:  32,
 	}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *CreateShareService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 // Execute creates a share for the given virtual path. expiresInSeconds of 0
 // means the link never expires. Returns the created share.
@@ -95,6 +101,7 @@ func (s *CreateShareService) Execute(user *models.User, path string, expiresInSe
 	if err := s.shareRepo.Create(share); err != nil {
 		return nil, err
 	}
+	publishEvent(s.bus, events.TypeShare, virtual, user)
 	return share, nil
 }
 

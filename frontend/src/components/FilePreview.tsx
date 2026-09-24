@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, ExternalLink, Loader2, PencilLine, Save, X, XCircle } from 'lucide-react';
 import { api, type FileItem } from '../services/api';
 import { contentTypeFor, formatBytes, viewerKindFor } from '../lib/utils';
@@ -37,12 +38,29 @@ function withType(blob: Blob, name: string): Blob {
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * Returns the URL when it is safe to put in an href, null otherwise. Allows
+ * relative URLs and http(s)/mailto/tel only — never javascript:, data:, or
+ * anything carrying quotes/angle brackets that could break the attribute.
+ */
+function safeHref(url: string): string | null {
+  const trimmed = url.trim();
+  if (trimmed === '' || /["'<>\s]/.test(trimmed)) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (!scheme) return trimmed.startsWith('//') ? null : trimmed;
+  return /^(https?|mailto|tel)$/i.test(scheme[1]) ? trimmed : null;
+}
+
 function inlineMarkdown(s: string): string {
   return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a class="text-cyan-300 underline" href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label: string, url: string) => {
+      const href = safeHref(url);
+      if (href === null) return label;
+      return `<a class="text-cyan-300 underline" href="${href}" target="_blank" rel="noopener">${label}</a>`;
+    });
 }
 
 /** Minimal, XSS-safe Markdown renderer for previewing .md files. */
@@ -187,7 +205,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
 
   const markdown = renderMarkdown(text ?? '');
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-slide-in"
       onClick={onClose}
@@ -326,6 +344,7 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

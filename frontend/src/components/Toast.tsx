@@ -17,7 +17,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`dark-surface flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-md animate-slide-in ${
+            className={`dark-surface flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-md animate-pop ${
               toast.type === 'success'
                 ? 'border-emerald-500/30 bg-emerald-950/80 text-emerald-200'
                 : toast.type === 'error'
@@ -31,7 +31,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <span className="text-sm font-medium">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
-              className="ml-2 opacity-60 transition-opacity hover:opacity-100"
+              className="ms-2 opacity-60 transition-all hover:scale-110 hover:opacity-100"
               aria-label={t('common.dismiss')}
             >
               <X className="h-4 w-4" />

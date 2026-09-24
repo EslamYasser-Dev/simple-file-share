@@ -29,7 +29,7 @@ func TestShareRouteIsRateLimited(t *testing.T) {
 		services.NewDownloadFileService(fileRepo, scoper),
 		services.NewDownloadZipService(fileRepo, scoper),
 	)
-	server := xhttp.NewServer("0", noopTLSCertGenerator{}, logging.NewStdLogger(), xhttp.RouteHandlers{
+	server := xhttp.NewServer("0", noopTLSCertGenerator{}, logging.NewStdLoggerPlain(), xhttp.RouteHandlers{
 		Share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService)),
 	}, nil, nil, false)
 

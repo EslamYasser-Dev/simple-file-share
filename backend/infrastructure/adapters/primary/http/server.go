@@ -19,30 +19,39 @@ import (
 )
 
 type RouteHandlers struct {
-	Files      http.Handler
-	Download   http.Handler
-	View       http.Handler
-	Upload     http.Handler
-	Update     http.Handler
-	Directory  http.Handler
-	FileInfo   http.Handler
-	Search     http.Handler
-	Register   http.Handler
-	Me         http.Handler
-	AuthInfo   http.Handler
-	AdminUsers http.Handler
-	AdminQuota http.Handler
-	Shares     http.Handler
-	Share      http.Handler
-	Versions   http.Handler
-	Version    http.Handler
-	Restore    http.Handler
-	Health     http.Handler
-	Token      http.Handler
-	Refresh    http.Handler
-	Revoke     http.Handler
-	OAuthStart http.Handler
-	OAuthCb    http.Handler
+	Files           http.Handler
+	Download        http.Handler
+	View            http.Handler
+	Upload          http.Handler
+	ResumableUpload http.Handler
+	Update          http.Handler
+	Directory       http.Handler
+	FileInfo        http.Handler
+	Search          http.Handler
+	Events          http.Handler
+	P2P             http.Handler
+	Register        http.Handler
+	Me              http.Handler
+	AuthInfo        http.Handler
+	AdminUsers      http.Handler
+	AdminUser       http.Handler
+	AdminQuota      http.Handler
+	AdminPass       http.Handler
+	AdminRoles      http.Handler
+	AdminRole       http.Handler
+	AdminAnalytics  http.Handler
+	SelfPass        http.Handler
+	Shares          http.Handler
+	Share           http.Handler
+	Versions        http.Handler
+	Version         http.Handler
+	Restore         http.Handler
+	Health          http.Handler
+	Token           http.Handler
+	Refresh         http.Handler
+	Revoke          http.Handler
+	OAuthStart      http.Handler
+	OAuthCb         http.Handler
 }
 
 type Server struct {
@@ -59,6 +68,9 @@ type Server struct {
 	shareLimiter *IPLimiter
 	apiLimiter   *IPLimiter
 	authLimiter  *IPLimiter
+	// Chunked uploads issue one request per part; a dedicated higher budget
+	// keeps resume traffic from tripping the general API limiter.
+	uploadLimiter *IPLimiter
 }
 
 func NewServer(
@@ -84,7 +96,7 @@ func NewServer(
 				MinVersion: tls.VersionTLS13,
 			},
 			ReadTimeout:       DefaultReadTimeout,
-			ReadHeaderTimeout: DefaultReadTimeout,
+			ReadHeaderTimeout: DefaultReadHeaderTimeout,
 			WriteTimeout:      DefaultWriteTimeout,
 			IdleTimeout:       DefaultIdleTimeout,
 			MaxHeaderBytes:    DefaultMaxHeaderBytes,
@@ -93,6 +105,8 @@ func NewServer(
 		apiLimiter:   NewIPLimiter(shareLimitRate, shareLimitBurst),
 		// Stricter budget for credential endpoints (login/register/oauth).
 		authLimiter: NewIPLimiter(0.5, 10),
+		// Resumable chunk traffic: higher rate/burst than the general API.
+		uploadLimiter: NewIPLimiter(50, 100),
 	}
 }
 
@@ -122,7 +136,9 @@ func (s *Server) Start() error {
 		}
 	}
 
-	s.httpServer.Handler = mux
+	// Wrap the whole mux so the static SPA, share links, and swagger routes
+	// receive the same security headers as the API chains.
+	s.httpServer.Handler = securityHeaders(mux)
 
 	if s.useTLS {
 		certPEM, keyPEM, err := s.tlsGenerator.GenerateCert()
@@ -181,12 +197,44 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/files/view", apiChain(s.handlers.View))
 	mux.Handle("/api/files/info", apiChain(s.handlers.FileInfo))
 	mux.Handle("/api/files/search", apiChain(s.handlers.Search))
+	mux.Handle("/api/events", apiChain(s.handlers.Events))
+	// WebRTC signaling: presence + short SDP/ICE bodies (rate-limited like API).
+	mux.Handle("/api/p2p/stream", apiChain(s.handlers.P2P))
+	mux.Handle("/api/p2p/peers", apiChain(s.handlers.P2P))
+	mux.Handle("/api/p2p/signal", apiChain(s.handlers.P2P))
 	mux.Handle("/api/upload", apiChain(s.handlers.Upload))
+	// Resumable sessions need their own limiter (many small PATCH requests).
+	mux.Handle("/api/uploads", chainMiddleware(
+		s.handlers.ResumableUpload,
+		corsMiddleware,
+		securityHeaders,
+		func(next http.Handler) http.Handler {
+			return loggingMiddleware(next, s.logger)
+		},
+		s.authMiddlewareIfEnabled(),
+		RateLimitMiddleware(s.uploadLimiter),
+	))
+	mux.Handle("/api/uploads/", chainMiddleware(
+		s.handlers.ResumableUpload,
+		corsMiddleware,
+		securityHeaders,
+		func(next http.Handler) http.Handler {
+			return loggingMiddleware(next, s.logger)
+		},
+		s.authMiddlewareIfEnabled(),
+		RateLimitMiddleware(s.uploadLimiter),
+	))
 	mux.Handle("/api/files/content", apiChain(s.handlers.Update))
 	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
 	mux.Handle("/api/auth/me", apiChain(s.handlers.Me))
-	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUsers))
+	mux.Handle("/api/auth/password", apiChain(s.handlers.SelfPass))
+	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUser))
+	mux.Handle("/api/admin/users/{username}", apiChain(s.handlers.AdminUser))
 	mux.Handle("/api/admin/users/{username}/quota", apiChain(s.handlers.AdminQuota))
+	mux.Handle("/api/admin/users/{username}/password", apiChain(s.handlers.AdminPass))
+	mux.Handle("/api/admin/roles", apiChain(s.handlers.AdminRoles))
+	mux.Handle("/api/admin/roles/{name}", apiChain(s.handlers.AdminRole))
+	mux.Handle("/api/admin/analytics/{report}", apiChain(s.handlers.AdminAnalytics))
 	mux.Handle("/api/shares", apiChain(s.handlers.Shares))
 	mux.Handle("/api/files/versions", apiChain(s.handlers.Versions))
 	mux.Handle("/api/files/version", apiChain(s.handlers.Version))
@@ -220,6 +268,7 @@ func (s *Server) registerRoutes() *http.ServeMux {
 		chainMiddleware(
 			s.handlers.Share,
 			corsMiddleware,
+			securityHeaders,
 			RateLimitMiddleware(s.shareLimiter),
 			func(next http.Handler) http.Handler {
 				return loggingMiddleware(next, s.logger)
@@ -293,16 +342,52 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 	return middlewares
 }
 
-// securityHeaders mitigates MIME sniffing and reduces cross-origin leakage of
-// credentials-bearing URLs (including OAuth redirects).
+// authMiddlewareIfEnabled returns the auth middleware when auth is on, or a
+// no-op pass-through when auth is disabled (system view).
+func (s *Server) authMiddlewareIfEnabled() func(http.Handler) http.Handler {
+	if s.enableAuth && s.authService != nil {
+		return AuthMiddleware(s.authService, s.tokenService)
+	}
+	return func(next http.Handler) http.Handler { return next }
+}
+
+// securityHeaders mitigates MIME sniffing, reduces cross-origin leakage of
+// credentials-bearing URLs (including OAuth redirects), blocks framing, and
+// restricts which origins may serve scripts/styles/fonts for responses served
+// from this origin. The Content-Security-Policy is skipped for the swagger UI
+// (which loads its bundle from a CDN) while every other header still applies.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		if requestIsHTTPS(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		if !strings.HasPrefix(r.URL.Path, "/swagger") {
+			w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+// contentSecurityPolicy keeps same-origin as the only script/connect source,
+// allows inline style attributes and the pre-paint theme script, and lets the
+// app load its webfonts and blob/data previews. frame-ancestors duplicates
+// X-Frame-Options for modern browsers.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+	"font-src 'self' data: https://fonts.gstatic.com; " +
+	"img-src 'self' data: blob:; " +
+	"media-src 'self' blob:; " +
+	"connect-src 'self'; " +
+	"frame-src 'self' blob:; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'"
 
 type responseWriter struct {
 	http.ResponseWriter

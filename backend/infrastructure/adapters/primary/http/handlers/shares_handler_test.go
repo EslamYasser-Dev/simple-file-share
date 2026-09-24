@@ -41,8 +41,8 @@ func newShareHandlerFixture(t *testing.T) *shareHandlerFixture {
 	return &shareHandlerFixture{
 		shares: NewSharesHandler(
 			services.NewCreateShareService(fileRepo, shareRepo, scoper),
-			services.NewListSharesService(shareRepo, scoper),
-			services.NewRevokeShareService(shareRepo, scoper),
+			services.NewListSharesService(shareRepo, scoper, services.NewRoleCatalog(nil)),
+			services.NewRevokeShareService(shareRepo, scoper, services.NewRoleCatalog(nil)),
 		),
 		share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService)),
 		repo:  shareRepo,

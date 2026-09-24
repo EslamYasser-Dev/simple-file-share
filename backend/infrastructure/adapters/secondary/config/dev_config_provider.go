@@ -15,6 +15,8 @@ type DevConfigProvider struct {
 	defaultQuotaBytes int64
 	jwtSecret         string
 	jwtTtlSeconds     int
+	storageBackend    string
+	s3                ports.S3Settings
 }
 
 func NewDevConfigProvider() (*DevConfigProvider, error) {
@@ -34,6 +36,8 @@ func NewDevConfigProvider() (*DevConfigProvider, error) {
 		defaultQuotaBytes: resolveDefaultQuotaBytes(),
 		jwtSecret:         resolveJWTSecret(),
 		jwtTtlSeconds:     resolveJWTTTLSeconds(),
+		storageBackend:    resolveStorageBackend(),
+		s3:                resolveS3Settings(),
 	}, nil
 }
 
@@ -50,5 +54,9 @@ func (p *DevConfigProvider) EnableAuth() bool            { return resolveBoolEnv
 func (p *DevConfigProvider) EnableSignup() bool          { return resolveEnableSignup() }
 func (p *DevConfigProvider) GetJWTSecret() string        { return p.jwtSecret }
 func (p *DevConfigProvider) GetJWTTTLSeconds() int       { return p.jwtTtlSeconds }
+func (p *DevConfigProvider) GetStorageBackend() string   { return p.storageBackend }
+func (p *DevConfigProvider) GetS3Settings() ports.S3Settings {
+	return p.s3
+}
 
 var _ ports.ConfigProvider = (*DevConfigProvider)(nil)

@@ -74,7 +74,11 @@ func NewJWTManagerWithStore(secret string, ttl time.Duration, path string) *JWTM
 
 func (m *JWTManager) Issue(subject string) (string, ports.TokenClaims, error) {
 	now := m.now()
-	exp := now.Add(m.ttl)
+	iat := now.Unix()
+	if floor := m.revocations.subjectIssueFloor(subject); floor > iat {
+		iat = floor
+	}
+	exp := time.Unix(iat, 0).Add(m.ttl)
 	jti, err := randomID()
 	if err != nil {
 		return "", ports.TokenClaims{}, err
@@ -86,7 +90,7 @@ func (m *JWTManager) Issue(subject string) (string, ports.TokenClaims, error) {
 	}
 	payload, err := json.Marshal(jwtClaims{
 		Subject:   subject,
-		IssuedAt:  now.Unix(),
+		IssuedAt:  iat,
 		ExpiresAt: exp.Unix(),
 		ID:        jti,
 	})
@@ -145,6 +149,9 @@ func (m *JWTManager) Verify(token string) (*ports.TokenClaims, error) {
 	if m.revocations.isRevoked(claims.ID) {
 		return nil, ErrInvalidToken
 	}
+	if m.revocations.isSubjectRevoked(claims.Subject, claims.IssuedAt) {
+		return nil, ErrInvalidToken
+	}
 
 	return &ports.TokenClaims{
 		Subject:   claims.Subject,
@@ -155,6 +162,16 @@ func (m *JWTManager) Verify(token string) (*ports.TokenClaims, error) {
 
 func (m *JWTManager) Revoke(id string, expiresAt time.Time) {
 	m.revocations.revoke(id, expiresAt)
+}
+
+// RevokeSubject invalidates tokens issued at or before now for subject until
+// the until horizon (used as a record-pruning deadline). Tokens issued after
+// the revoke still verify, so re-login works immediately.
+func (m *JWTManager) RevokeSubject(subject string, until time.Time) {
+	if subject == "" {
+		return
+	}
+	m.revocations.revokeSubject(subject, until)
 }
 
 func (m *JWTManager) sign(signingInput string) []byte {
@@ -172,22 +189,32 @@ func randomID() (string, error) {
 }
 
 type revocationDoc struct {
-	Entries map[string]string `json:"entries"`
+	Entries  map[string]string     `json:"entries"`
+	Subjects map[string]subjectDoc `json:"subjects,omitempty"`
+}
+
+type subjectDoc struct {
+	// CutoffUnix rejects tokens with iat <= cutoff (second precision).
+	CutoffUnix int64 `json:"cutoffUnix"`
+	// KeepUntil is when the record may be pruned (not when access resumes).
+	KeepUntil string `json:"keepUntil"`
 }
 
 // revocationList is a bounded set of token IDs whose expiry has not passed.
 // When path is non-empty, mutations are flushed to disk so restarts do not
 // resurrect revoked sessions.
 type revocationList struct {
-	mu      sync.Mutex
-	path    string
-	entries map[string]time.Time
+	mu       sync.Mutex
+	path     string
+	entries  map[string]time.Time
+	subjects map[string]subjectDoc
 }
 
 func newRevocationList(path string) *revocationList {
 	l := &revocationList{
-		path:    path,
-		entries: make(map[string]time.Time),
+		path:     path,
+		entries:  make(map[string]time.Time),
+		subjects: make(map[string]subjectDoc),
 	}
 	l.load()
 	return l
@@ -215,6 +242,59 @@ func (l *revocationList) isRevoked(id string) bool {
 	return true
 }
 
+func (l *revocationList) revokeSubject(subject string, until time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.subjects == nil {
+		l.subjects = make(map[string]subjectDoc)
+	}
+	now := time.Now()
+	cutoff := now.Unix()
+	keep := until
+	if !keep.After(now) {
+		keep = now.Add(time.Hour)
+	}
+	if cur, ok := l.subjects[subject]; ok && cur.CutoffUnix > cutoff {
+		cutoff = cur.CutoffUnix
+	}
+	l.subjects[subject] = subjectDoc{CutoffUnix: cutoff, KeepUntil: keep.UTC().Format(time.RFC3339)}
+	l.saveLocked()
+}
+
+// isSubjectRevoked reports whether a token for subject issued at iat is
+// covered by a subject revoke (iat <= cutoff) while the record is still live.
+func (l *revocationList) isSubjectRevoked(subject string, iat int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	rev, ok := l.subjects[subject]
+	if !ok {
+		return false
+	}
+	keep, err := time.Parse(time.RFC3339, rev.KeepUntil)
+	if err != nil || time.Now().After(keep) {
+		delete(l.subjects, subject)
+		return false
+	}
+	return iat <= rev.CutoffUnix
+}
+
+// subjectIssueFloor returns the minimum iat a newly issued token may use so
+// it is never covered by an active subject revoke.
+func (l *revocationList) subjectIssueFloor(subject string) int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	rev, ok := l.subjects[subject]
+	if !ok {
+		return 0
+	}
+	keep, err := time.Parse(time.RFC3339, rev.KeepUntil)
+	if err != nil || time.Now().After(keep) {
+		delete(l.subjects, subject)
+		return 0
+	}
+	return rev.CutoffUnix + 1
+}
+
 func (l *revocationList) pruneLocked(now time.Time) {
 	if len(l.entries) <= 10000 {
 		return
@@ -222,6 +302,14 @@ func (l *revocationList) pruneLocked(now time.Time) {
 	for k, exp := range l.entries {
 		if now.After(exp) {
 			delete(l.entries, k)
+		}
+	}
+	if l.subjects != nil {
+		for k, rev := range l.subjects {
+			keep, err := time.Parse(time.RFC3339, rev.KeepUntil)
+			if err != nil || now.After(keep) {
+				delete(l.subjects, k)
+			}
 		}
 	}
 }
@@ -235,16 +323,30 @@ func (l *revocationList) load() {
 		return
 	}
 	var doc revocationDoc
-	if err := json.Unmarshal(data, &doc); err != nil || doc.Entries == nil {
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return
 	}
 	now := time.Now()
-	for id, raw := range doc.Entries {
-		exp, err := time.Parse(time.RFC3339, raw)
-		if err != nil || now.After(exp) {
-			continue
+	if doc.Entries != nil {
+		for id, raw := range doc.Entries {
+			exp, err := time.Parse(time.RFC3339, raw)
+			if err != nil || now.After(exp) {
+				continue
+			}
+			l.entries[id] = exp
 		}
-		l.entries[id] = exp
+	}
+	if doc.Subjects != nil {
+		if l.subjects == nil {
+			l.subjects = make(map[string]subjectDoc)
+		}
+		for sub, sd := range doc.Subjects {
+			keep, err := time.Parse(time.RFC3339, sd.KeepUntil)
+			if err != nil || now.After(keep) {
+				continue
+			}
+			l.subjects[sub] = sd
+		}
 	}
 }
 
@@ -252,9 +354,15 @@ func (l *revocationList) saveLocked() {
 	if l.path == "" {
 		return
 	}
-	doc := revocationDoc{Entries: make(map[string]string, len(l.entries))}
+	doc := revocationDoc{
+		Entries:  make(map[string]string, len(l.entries)),
+		Subjects: make(map[string]subjectDoc, len(l.subjects)),
+	}
 	for id, exp := range l.entries {
 		doc.Entries[id] = exp.UTC().Format(time.RFC3339)
+	}
+	for sub, sd := range l.subjects {
+		doc.Subjects[sub] = sd
 	}
 	data, err := json.Marshal(doc)
 	if err != nil {

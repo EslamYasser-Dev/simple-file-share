@@ -56,7 +56,9 @@ func (s *SeedAdminService) Execute(username, password string) (bool, error) {
 	if err := s.users.CreateUser(&models.User{
 		Username:     username,
 		PasswordHash: hash,
+		Role:         models.RoleAdmin,
 		IsAdmin:      true,
+		Enabled:      true,
 		CreatedAt:    time.Now().UTC(),
 	}); err != nil {
 		return false, err

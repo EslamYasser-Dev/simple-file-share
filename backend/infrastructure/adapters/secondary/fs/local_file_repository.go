@@ -198,6 +198,28 @@ func (r *LocalFileRepository) CreateDirectory(path string) error {
 	return os.MkdirAll(fullPath, storageDirPerm)
 }
 
+// MovePath renames a physical path inside the storage root (username rename).
+func (r *LocalFileRepository) MovePath(oldPath, newPath string) error {
+	src, err := r.resolve(oldPath)
+	if err != nil {
+		return err
+	}
+	dst, err := r.resolve(newPath)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(src); err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(dst, storageDirPerm)
+		}
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), storageDirPerm); err != nil {
+		return err
+	}
+	return os.Rename(src, dst)
+}
+
 func (r *LocalFileRepository) DeletePath(path string) error {
 	fullPath, err := r.resolve(path)
 	if err != nil {

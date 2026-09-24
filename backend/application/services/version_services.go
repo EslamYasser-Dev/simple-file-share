@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/policy"
@@ -122,11 +123,15 @@ type RestoreVersionService struct {
 	fileRepo    ports.FileRepository
 	versionRepo ports.VersionRepository
 	scoper      ports.PathScoper
+	bus         *events.Bus
 }
 
 func NewRestoreVersionService(fileRepo ports.FileRepository, versionRepo ports.VersionRepository, scoper ports.PathScoper) *RestoreVersionService {
 	return &RestoreVersionService{fileRepo: fileRepo, versionRepo: versionRepo, scoper: scoper}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *RestoreVersionService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 func (s *RestoreVersionService) Execute(user *models.User, path string, n int) error {
 	if n < 1 {
@@ -170,5 +175,6 @@ func (s *RestoreVersionService) Execute(user *models.User, path string, n int) e
 	if syncer, ok := s.fileRepo.(interface{ SyncPath(string) }); ok {
 		syncer.SyncPath(physical)
 	}
+	publishEvent(s.bus, events.TypeRestore, path, user)
 	return nil
 }

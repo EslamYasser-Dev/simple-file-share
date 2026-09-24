@@ -72,7 +72,7 @@ func TestOAuthUpsertRefusesCrossProviderUsernameTakeover(t *testing.T) {
 func TestOAuthUpsertRefusesPasswordAccount(t *testing.T) {
 	svc, users, _ := newOAuthService(t)
 	hash, _ := auth.NewPBKDF2Hasher().Hash("secret")
-	if err := users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 

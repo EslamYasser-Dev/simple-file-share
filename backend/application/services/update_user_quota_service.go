@@ -1,29 +1,35 @@
 package services
 
 import (
+	"github.com/EslamYasser-Dev/simple-file-share/application/events"
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/valueobjects"
 )
 
-// UpdateUserQuotaService sets an account's storage quota. Only the system view
-// (admin, or auth-disabled nil user) may change quotas; the gate lives here so
-// both primary adapters enforce it.
+// UpdateUserQuotaService sets an account's storage quota. Only quota.manage
+// (or auth-disabled nil user) may change quotas; the gate lives here so both
+// primary adapters enforce it.
 type UpdateUserQuotaService struct {
 	users  ports.UserRepository
 	index  ports.FileIndexRepository
 	scoper ports.PathScoper
+	bus    *events.Bus
+	roles  *RoleCatalog
 }
 
-func NewUpdateUserQuotaService(users ports.UserRepository, index ports.FileIndexRepository, scoper ports.PathScoper) *UpdateUserQuotaService {
-	return &UpdateUserQuotaService{users: users, index: index, scoper: scoper}
+func NewUpdateUserQuotaService(users ports.UserRepository, index ports.FileIndexRepository, scoper ports.PathScoper, roles *RoleCatalog) *UpdateUserQuotaService {
+	return &UpdateUserQuotaService{users: users, index: index, scoper: scoper, roles: roles}
 }
+
+// SetEventBus attaches a live-update bus (nil disables publishing).
+func (s *UpdateUserQuotaService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 // Execute parses the quota (bytes or a human size, 0/unlimited meaning no
 // limit), stores it, and returns the updated account with current usage.
 func (s *UpdateUserQuotaService) Execute(actor *models.User, username, rawQuota string) (*models.UserStats, error) {
-	if !actor.IsSystemView() {
+	if !actor.HasPermission(models.PermQuotaManage, s.roles) {
 		return nil, &domainerrors.ForbiddenError{Action: "set quota"}
 	}
 
@@ -36,7 +42,11 @@ func (s *UpdateUserQuotaService) Execute(actor *models.User, username, rawQuota 
 		return nil, err
 	}
 
-	return s.loadStats(username)
+	stats, err := s.loadStats(username)
+	if err == nil {
+		publishEvent(s.bus, events.TypeQuota, "", actor)
+	}
+	return stats, err
 }
 
 // loadStats builds the read model for one account including storage usage.
@@ -51,7 +61,9 @@ func (s *UpdateUserQuotaService) loadStats(username string) (*models.UserStats, 
 	}
 	return &models.UserStats{
 		Username:   u.Username,
+		Role:       u.Role,
 		IsAdmin:    u.IsAdmin,
+		Enabled:    u.Enabled,
 		QuotaBytes: u.QuotaBytes,
 		CreatedAt:  u.CreatedAt,
 		Files:      files,

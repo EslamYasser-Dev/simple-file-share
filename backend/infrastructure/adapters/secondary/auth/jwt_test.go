@@ -90,3 +90,22 @@ func TestJWTRevocationSurvivesRestart(t *testing.T) {
 		t.Fatal("revocation must persist across manager restart")
 	}
 }
+
+func TestJWTRevokeSubjectBlocksOldAllowsNew(t *testing.T) {
+	m := NewJWTManager("test-secret", time.Hour)
+	old, _, err := m.Issue("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.RevokeSubject("alice", time.Now().Add(24*time.Hour))
+	if _, err := m.Verify(old); err == nil {
+		t.Fatal("token issued before RevokeSubject must fail")
+	}
+	fresh, _, err := m.Issue("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Verify(fresh); err != nil {
+		t.Fatalf("token issued after RevokeSubject must verify: %v", err)
+	}
+}

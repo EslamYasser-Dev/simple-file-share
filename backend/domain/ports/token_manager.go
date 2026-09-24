@@ -17,4 +17,7 @@ type TokenManager interface {
 	Issue(subject string) (string, TokenClaims, error)
 	Verify(token string) (*TokenClaims, error)
 	Revoke(id string, expiresAt time.Time)
+	// RevokeSubject invalidates tokens issued at or before now for subject
+	// (until is a record-pruning horizon). Newly issued tokens still verify.
+	RevokeSubject(subject string, until time.Time)
 }

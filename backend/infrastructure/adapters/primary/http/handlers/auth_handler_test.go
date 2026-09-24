@@ -95,7 +95,7 @@ func TestMeHandlerWithUser(t *testing.T) {
 	handler := NewMeHandler(services.NewUserInfoService(userRepo, index, scoper))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob"}))
+	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob", Role: models.RoleMember, Enabled: true}))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -111,10 +111,10 @@ func TestMeHandlerWithUser(t *testing.T) {
 func TestAdminUsersHandlerRequiresAdmin(t *testing.T) {
 	dir := t.TempDir()
 	userRepo := fs.NewUserFileRepository(dir)
-	handler := NewAdminUsersHandler(services.NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper()))
+	handler := NewAdminUsersHandler(services.NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper(), services.NewRoleCatalog(nil)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob"}))
+	req = req.WithContext(authctx.WithUser(req.Context(), &models.User{Username: "bob", Role: models.RoleMember, Enabled: true}))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

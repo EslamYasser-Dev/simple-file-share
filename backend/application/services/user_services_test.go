@@ -171,7 +171,7 @@ func TestListUsersReturnsStorageStats(t *testing.T) {
 	if err := index.Upsert(fileInfo("users/alice/b.txt", 5, false)); err != nil {
 		t.Fatal(err)
 	}
-	service := NewListUsersService(userRepo, index, policy.NewPathScoper())
+	service := NewListUsersService(userRepo, index, policy.NewPathScoper(), NewRoleCatalog(nil))
 
 	stats, err := service.Execute(&models.User{Username: "root", IsAdmin: true})
 	if err != nil {
@@ -191,7 +191,7 @@ func TestListUsersForbidsRegularUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	service := NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper())
+	service := NewListUsersService(userRepo, memory.NewFileIndexRepository(), policy.NewPathScoper(), NewRoleCatalog(nil))
 
 	var forbidden *domainerrors.ForbiddenError
 	if _, err := service.Execute(&models.User{Username: "alice"}); !errors.As(err, &forbidden) {

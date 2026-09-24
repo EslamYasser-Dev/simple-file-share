@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"errors"
-
 	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -24,12 +22,15 @@ func NewUserAuthProvider(users ports.UserRepository, hasher ports.PasswordHasher
 func (p *UserAuthProvider) Authenticate(username, password string) (*models.User, error) {
 	user, err := p.users.FindByUsername(username)
 	if err != nil {
-		return nil, err
+		// Collapse "user missing" into the same generic failure as a bad
+		// password so the response never reveals whether an account exists.
+		return nil, domainerrors.ErrInvalidCredentials
+	}
+	if !user.Enabled {
+		return nil, domainerrors.ErrInvalidCredentials
 	}
 	if !p.hasher.Verify(password, user.PasswordHash) {
-		// Return a generic failure regardless of whether the user exists to
-		// avoid leaking account existence through response timing or errors.
-		return nil, errors.Join(domainerrors.ErrInvalidCredentials, domainerrors.ErrUserNotFound)
+		return nil, domainerrors.ErrInvalidCredentials
 	}
 	return user, nil
 }

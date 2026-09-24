@@ -28,7 +28,7 @@ func newTokenHandlers(t *testing.T) (*TokenHandler, *RefreshHandler, *RevokeHand
 func TestTokenHandlerIssuesAndRefreshes(t *testing.T) {
 	tokenH, refreshH, revokeH, users := newTokenHandlers(t)
 	hash, _ := auth.NewPBKDF2Hasher().Hash("secret")
-	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()})
+	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()})
 
 	rec := httptest.NewRecorder()
 	tokenH.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(`{"username":"alice","password":"secret"}`)))
@@ -74,7 +74,7 @@ func TestTokenHandlerIssuesAndRefreshes(t *testing.T) {
 func TestTokenHandlerRejectsBadPassword(t *testing.T) {
 	tokenH, _, _, users := newTokenHandlers(t)
 	hash, _ := auth.NewPBKDF2Hasher().Hash("secret")
-	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, CreatedAt: time.Now().UTC()})
+	_ = users.CreateUser(&models.User{Username: "alice", PasswordHash: hash, Enabled: true, CreatedAt: time.Now().UTC()})
 
 	rec := httptest.NewRecorder()
 	tokenH.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(`{"username":"alice","password":"nope"}`)))
