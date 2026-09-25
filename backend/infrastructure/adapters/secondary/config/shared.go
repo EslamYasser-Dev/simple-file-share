@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +33,9 @@ const (
 func resolveRootDir() (string, error) {
 	for _, key := range []string{"ROOT_DIR", "FILE_SHARE_ROOT"} {
 		if v := os.Getenv(key); v != "" {
+			if strings.HasPrefix(v, "~") {
+				return "", fmt.Errorf("%s %q: '~' is never expanded in environment variables — use an absolute path (containers: /data)", key, v)
+			}
 			return filepath.Abs(v)
 		}
 	}
