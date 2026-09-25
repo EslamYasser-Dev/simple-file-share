@@ -7,8 +7,8 @@ import {
   P,
   ProseH2,
   UL,
-} from "../../components/site";
-import { APP_URL, GITHUB_URL } from "../../lib/site";
+} from "../../../components/site";
+import { APP_URL, GITHUB_URL } from "../../../lib/site";
 
 export const metadata: Metadata = {
   title: "Getting started",

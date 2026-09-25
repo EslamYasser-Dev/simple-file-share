@@ -8,7 +8,7 @@ import {
   ProseH2,
   Step,
   UL,
-} from "../../../components/site";
+} from "../../../../components/site";
 
 export const metadata: Metadata = {
   title: "First steps",

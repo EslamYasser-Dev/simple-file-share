@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import "./globals.css";
+import "../globals.css";
 
 export const metadata: Metadata = {
   title: {
@@ -14,6 +14,7 @@ export const metadata: Metadata = {
     description:
       "Resumable uploads, LAN P2P, RBAC, S3, gRPC, and EN/AR UI — open source, one binary.",
     type: "website",
+    locale: "en_US",
   },
 };
 
@@ -21,7 +22,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" dir="ltr">
       <body className="min-h-screen bg-void font-sans text-paper antialiased">
         {children}
       </body>

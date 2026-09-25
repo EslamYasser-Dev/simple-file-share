@@ -8,8 +8,8 @@ import {
   ProseH2,
   Step,
   UL,
-} from "../../../components/site";
-import { GITHUB_URL } from "../../../lib/site";
+} from "../../../../components/site";
+import { GITHUB_URL } from "../../../../lib/site";
 
 export const metadata: Metadata = {
   title: "Local development",
