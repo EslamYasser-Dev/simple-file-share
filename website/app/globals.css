@@ -2,7 +2,7 @@
 
 @font-face {
   font-family: "GE SS Text";
-  src: url("/fonts/GE-SS-Text-Light.woff") format("woff");
+  src: url("../fonts/GE-SS-Text-Light.woff") format("woff");
   font-weight: 300;
   font-style: normal;
   font-display: swap;
@@ -10,7 +10,7 @@
 
 @font-face {
   font-family: "GE SS Text";
-  src: url("/fonts/GE-SS-Text-Medium.woff") format("woff");
+  src: url("../fonts/GE-SS-Text-Medium.woff") format("woff");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -18,7 +18,7 @@
 
 @font-face {
   font-family: "GE SS Text";
-  src: url("/fonts/GE-SS-Text-Bold.woff") format("woff");
+  src: url("../fonts/GE-SS-Text-Bold.woff") format("woff");
   font-weight: 700;
   font-style: normal;
   font-display: swap;

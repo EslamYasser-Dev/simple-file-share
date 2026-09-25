@@ -8,7 +8,6 @@ export const metadata: Metadata = {
   },
   description:
     "مساحة عمل ملفات مفتوحة المصدر بلغة Go واحدة: رفع قابل للاستئناف، نقل في الشبكة المحلية، أدوار وحصص، S3 أو قرص محلي، بالعربية والإنجليزية.",
-  icons: [{ rel: "icon", url: "/favicon.svg", type: "image/svg+xml" }],
   openGraph: {
     title: "FileShare — مشاركة ملفات مستضافة ذاتيًا",
     description:

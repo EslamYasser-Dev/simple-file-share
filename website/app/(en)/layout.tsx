@@ -8,7 +8,6 @@ export const metadata: Metadata = {
   },
   description:
     "Open-source file workspace in one Go binary: resumable uploads, LAN P2P, roles, quotas, S3 or local disk, English and Arabic.",
-  icons: [{ rel: "icon", url: "/favicon.svg", type: "image/svg+xml" }],
   openGraph: {
     title: "FileShare — self-hosted file sharing",
     description:

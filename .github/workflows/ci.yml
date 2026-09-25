@@ -109,15 +109,16 @@ jobs:
 
       # The build is shared by every deployment path below (Actions-based
       # Pages deploy, PR previews, and the gh-pages branch), so it must be
-      # baked with the GitHub Pages base path. VITE_API_URL is optional at
-      # build time (empty = same-origin) and only enforced before the
-      # production deployment.
+      # baked with the GitHub Pages base path. The app is served under
+      # /app/ next to the landing website at the site root. VITE_API_URL
+      # is optional at build time (empty = same-origin) and only enforced
+      # before the production deployment.
       - name: Build (with Pages base path)
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
           base="${{ vars.VITE_BASE_PATH }}"
-          [ -n "$base" ] || base="/${{ github.event.repository.name }}/"
+          [ -n "$base" ] || base="/${{ github.event.repository.name }}/app/"
           VITE_BASE_PATH="$base" yarn build
 
       - name: Add SPA fallback and disable Jekyll
@@ -172,8 +173,24 @@ jobs:
       - name: Lint
         run: yarn lint
 
-      - name: Build
-        run: yarn build
+      - name: Build (with Pages base path)
+        run: |
+          repo="${{ github.event.repository.name }}"
+          owner="${{ github.repository_owner }}"
+          web="${{ vars.WEBSITE_BASE_PATH }}"
+          [ -n "$web" ] || web="/$repo"
+          app="${{ vars.VITE_BASE_PATH }}"
+          [ -n "$app" ] || app="/$repo/app/"
+          NEXT_PUBLIC_BASE_PATH="$web" \
+          NEXT_PUBLIC_APP_URL="https://${owner}.github.io${app}" \
+          yarn build
+
+      - name: Upload website build
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-out
+          path: website/out
+          if-no-files-found: error
 
   mobile:
     name: Mobile (Flutter)
@@ -226,7 +243,7 @@ jobs:
   deploy-pages:
     name: Deploy to GitHub Pages
     if: github.event_name == 'push' && contains(fromJson('["master","main","enhancements"]'), github.ref_name)
-    needs: frontend
+    needs: [ frontend, website ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -239,10 +256,19 @@ jobs:
       group: pages-deploy-${{ github.ref }}
       cancel-in-progress: true
     steps:
+      # Landing website at the site root, frontend app under /app/.
+      - uses: actions/download-artifact@v4
+        with:
+          name: website-out
+          path: _site
+
       - uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist
+          path: _site/app
+
+      - name: Assemble site
+        run: touch _site/.nojekyll
 
       - name: Warn when VITE_API_URL is unset
         run: |
@@ -271,7 +297,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: _site
 
       - id: deployment
         uses: actions/deploy-pages@v4
@@ -282,7 +308,7 @@ jobs:
   deploy-pages-preview:
     name: Preview on GitHub Pages (PR)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    needs: frontend
+    needs: [ frontend, website ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -297,25 +323,33 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: website-out
+          path: _site
+
+      - uses: actions/download-artifact@v4
+        with:
           name: frontend-dist
-          path: frontend/dist
+          path: _site/app
+
+      - name: Assemble site
+        run: touch _site/.nojekyll
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: _site
 
       - id: deployment
         uses: actions/deploy-pages@v4
 
-  # Legacy backup: force-push the built UI to the gh-pages branch on every
+  # Legacy backup: force-push the built site to the gh-pages branch on every
   # push, for repositories configured with Pages source "Deploy from a
   # branch". Ignored when the Pages source is "GitHub Actions".
   publish-gh-pages:
     name: Publish to gh-pages branch
     if: github.event_name == 'push'
-    needs: frontend
+    needs: [ frontend, website ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -325,19 +359,24 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: website-out
+          path: /tmp/gh-pages
+
+      - uses: actions/download-artifact@v4
+        with:
           name: frontend-dist
-          path: frontend/dist
+          path: /tmp/gh-pages/app
 
       - name: Push to gh-pages branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          rm -rf /tmp/gh-pages
-          mkdir -p /tmp/gh-pages
-          cp -r frontend/dist/* /tmp/gh-pages/
+          touch /tmp/gh-pages/.nojekyll
           cd /tmp/gh-pages
           git init -q
           git -c init.defaultBranch=gh-pages checkout -q -b gh-pages
           git add -A
-          git -c user.name="github-actions" -c user.email="actions@github.com" commit -qm "deploy: frontend $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git -c user.name="github-actions" -c user.email="actions@github.com" commit -qm "deploy: site $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           git push -f origin gh-pages
