@@ -36,9 +36,11 @@ export function VersionHistory({ item, readOnly, onClose, onRestored }: VersionH
 
   useEffect(() => {
     if (!item) return;
-    setVersions([]);
-    setRestoring(null);
-    void refresh();
+    void (async () => {
+      setVersions([]);
+      setRestoring(null);
+      await refresh();
+    })();
   }, [item, refresh]);
 
   const handleDownload = async (v: FileItem) => {

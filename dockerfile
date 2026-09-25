@@ -5,11 +5,11 @@ FROM node:20-alpine AS web-builder
 
 WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+COPY frontend/package.json frontend/yarn.lock frontend/.yarnrc.yml ./
+RUN corepack enable && yarn install --immutable
 
 COPY frontend/ ./
-RUN npm run build
+RUN yarn build
 
 # =============================
 # BACKEND BUILD STAGE

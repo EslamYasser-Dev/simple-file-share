@@ -30,9 +30,9 @@ export function Summary() {
 
   useEffect(() => {
     let mounted = true;
-    setIsLoading(true);
-    setError(null);
     (async () => {
+      setIsLoading(true);
+      setError(null);
       const res = await refreshRoot();
       if (!mounted) return;
       if (!res.ok) setError(t('summary.loadFailed'));

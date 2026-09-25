@@ -34,7 +34,9 @@ export function PendingUploads({ onFinished }: { onFinished?: () => void }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      await refresh();
+    })();
   }, [refresh]);
 
   const openResume = (session: PendingUploadSession) => {

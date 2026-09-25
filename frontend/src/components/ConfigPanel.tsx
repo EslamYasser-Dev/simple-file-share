@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 import { useConfigStore } from '../store/configStore';
 import { useI18n } from '../i18n';
@@ -22,10 +22,11 @@ export function ConfigPanel({ open, onClose }: ConfigPanelProps) {
   const lanShareEnabled = useConfigStore((s) => s.lanShareEnabled);
   const setLanShareEnabled = useConfigStore((s) => s.setLanShareEnabled);
   const [uploadDraft, setUploadDraft] = useState(String(maxUploads));
-
-  useEffect(() => {
+  const [prevMaxUploads, setPrevMaxUploads] = useState(maxUploads);
+  if (prevMaxUploads !== maxUploads) {
+    setPrevMaxUploads(maxUploads);
     setUploadDraft(String(maxUploads));
-  }, [maxUploads]);
+  }
 
   const clamp = (raw: string): number => {
     const n = Number.parseInt(raw, 10);

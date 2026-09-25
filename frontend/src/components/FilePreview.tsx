@@ -132,12 +132,12 @@ export function FilePreview({ item, onClose, onSaved }: FilePreviewProps) {
     if (!item) return;
     let cancelled = false;
     let url: string | null = null;
-    setStatus('loading');
-    setIsEditing(false);
-    setObjectUrl(null);
-    setText(null);
 
     (async () => {
+      setStatus('loading');
+      setIsEditing(false);
+      setObjectUrl(null);
+      setText(null);
       try {
         const blob = await fetchViewable(item.path);
         if (cancelled) return;

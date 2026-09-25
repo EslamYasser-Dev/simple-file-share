@@ -82,21 +82,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      - name: Resolve Yarn cache directory
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Yarn downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-${{ runner.os }}-frontend-${{ hashFiles('frontend/yarn.lock') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-frontend-
 
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+        run: yarn install --immutable
 
       - name: Type check
-        run: npx tsc -b
+        run: yarn tsc -b
 
       - name: Lint
-        run: npm run lint --if-present
-
-      - name: Test
-        run: npm run test --if-present
+        run: yarn lint
 
       # The build is shared by every deployment path below (Actions-based
       # Pages deploy, PR previews, and the gh-pages branch), so it must be
@@ -109,7 +118,7 @@ jobs:
         run: |
           base="${{ vars.VITE_BASE_PATH }}"
           [ -n "$base" ] || base="/${{ github.event.repository.name }}/"
-          VITE_BASE_PATH="$base" npm run build --if-present
+          VITE_BASE_PATH="$base" yarn build
 
       - name: Add SPA fallback and disable Jekyll
         run: |
@@ -124,12 +133,12 @@ jobs:
           path: frontend/dist
           if-no-files-found: ignore
 
-  mobile:
-    name: Mobile (Expo)
+  website:
+    name: Website (Next.js)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: mobile
+        working-directory: website
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -138,18 +147,59 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: mobile/package-lock.json
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      - name: Resolve Yarn cache directory
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Yarn downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-${{ runner.os }}-website-${{ hashFiles('website/yarn.lock') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-website-
 
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+        run: yarn install --immutable
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: yarn tsc --noEmit
 
       - name: Lint
-        run: npx expo lint
+        run: yarn lint
+
+      - name: Build
+        run: yarn build
+
+  mobile:
+    name: Mobile (Flutter)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
 
   docker:
     name: Docker image

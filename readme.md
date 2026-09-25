@@ -78,11 +78,11 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Internationalization**: English/Arabic with RTL layout and persisted preference
 
 ### Mobile
-- **Framework**: React Native with Expo SDK 57 and Expo Router
-- **Language**: TypeScript
-- **Auth**: JWT via `Authorization: Bearer` (token stored in SecureStore)
+- **Framework**: Flutter with Riverpod state management
+- **Language**: Dart
+- **Auth**: JWT via `Authorization: Bearer` (token stored in flutter_secure_storage)
 - **Features**: Browse/upload/download, share links, usage bar, live SSE events
-- **Config**: `EXPO_PUBLIC_API_URL` points at the Go API base URL
+- **Config**: `--dart-define=API_BASE_URL=...` points at the Go API base URL
 
 ## 📚 API Documentation
 
@@ -446,10 +446,10 @@ graph LR
 │           ├── primary/              # Driving adapters: http/, grpc/, authctx/
 │           └── secondary/            # Driven adapters: fs/, auth/, config/, tls/, logging/, memory/
 ├── frontend/                         # React + TypeScript + Vite SPA (see frontend/README.md)
-├── mobile/                           # Expo React Native app (Expo Router, TypeScript)
-│   ├── src/app/                      # Route screens (`_layout`, login, tabs)
-│   ├── src/services/                 # REST client, JWT auth, SSE stream
-│   └── src/config/                   # EXPO_PUBLIC_API_URL resolution
+├── mobile/                           # Flutter app (Riverpod, Dart)
+│   ├── lib/src/screens/              # Login, files, shares, account screens
+│   ├── lib/src/services/             # REST client, JWT auth, SSE stream
+│   └── lib/src/state/                # Riverpod auth controller
 ├── scripts/
 │   └── deploy-pages.sh               # Build + publish the frontend to GitHub Pages
 ├── .github/workflows/
@@ -511,12 +511,12 @@ graph LR
 
 2. **Install dependencies**
    ```bash
-   npm install
+   yarn install
    ```
 
 3. **Start development server**
    ```bash
-   npm run dev
+   yarn dev
    ```
 
 ### Docker Setup
@@ -538,16 +538,15 @@ graph LR
    docker compose up --build
    ```
 
-### Mobile app (Expo)
+### Mobile app (Flutter)
 
 ```bash
 cd mobile
-npm install
-# Point the app at your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
-echo 'EXPO_PUBLIC_API_URL=http://10.0.2.2:3000' > .env.local
-npx expo start
-# typecheck + lint
-npx tsc --noEmit && npx expo lint
+flutter pub get
+# Run against your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
+# static analysis + unit tests
+flutter analyze && flutter test
 ```
 
 OAuth sign-in uses the browser session cookie flow, so the mobile app currently
@@ -585,7 +584,7 @@ Two deployment shapes are supported:
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials (required when `STORAGE_BACKEND=s3`) |
 | `S3_PREFIX` | `""` | Optional key prefix inside the bucket (e.g. tenant id) |
 | `S3_PATH_STYLE` | auto | `true` forces `endpoint/bucket/key` addressing |
-| `EXPO_PUBLIC_API_URL` | platform default | Mobile app only: absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
+| `API_BASE_URL` | platform default | Mobile app only (`--dart-define`): absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
@@ -618,7 +617,7 @@ permissive CORS headers.
   ```bash
   VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh
   ```
-  The script runs `npm ci && npm run build`, adds the SPA `404.html` fallback
+  The script runs `yarn install --immutable && yarn build`, adds the SPA `404.html` fallback
   and `.nojekyll`, and force-pushes the result to the `gh-pages` branch. Then
   set **Settings → Pages → Source: Deploy from a branch → `gh-pages` / root**.
 
@@ -671,7 +670,7 @@ docker run -d --name file-share -p 22010:22010 \
 
 ```bash
 mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
-cd frontend && npm run build && cd ..  # builds frontend/dist
+cd frontend && yarn build && cd ..  # builds frontend/dist
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
 JWT_SECRET="$(openssl rand -hex 32)" \
 ADMIN_USERNAME=admin ADMIN_PASSWORD='local-smoke-only' ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
@@ -711,14 +710,14 @@ The frontend currently has no unit-test runner; CI type-checks, lints, and
 builds it instead:
 ```bash
 cd frontend
-npm run lint
-npm run build
+yarn lint
+yarn build
 ```
 
 ### Full suite
 ```bash
 cd backend && go vet ./... && go test -race ./... \
-  && cd ../frontend && npm run lint && npm run build
+  && cd ../frontend && yarn lint && yarn build
 ```
 
 ## 📊 Code Quality
@@ -738,7 +737,7 @@ Contributions are welcome — open an issue or submit a pull request.
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && npm run lint`) or the Make targets above
+5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && yarn lint`) or the Make targets above
 6. Submit a pull request
 
 ## 🔁 CI/CD
@@ -805,7 +804,7 @@ For support, please open an issue in the GitHub repository.
 - [x] **Real-time updates**: Live file/account events over Server-Sent Events
 - [x] **User management & RBAC**: Custom roles/permissions, account lifecycle, password reset, session revoke
 - [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
-- [x] **Mobile App**: Expo React Native client (browse, upload, download, share, usage, SSE)
+- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, SSE)
 - [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
 
 ## 📈 Performance Notes

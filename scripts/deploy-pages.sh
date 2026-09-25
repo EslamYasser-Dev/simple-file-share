@@ -15,7 +15,7 @@
 #                   pages (e.g. <user>.github.io).
 #   PAGES_REMOTE    Optional. Git remote to push to (default: origin).
 #   PAGES_BRANCH    Optional. Target branch (default: gh-pages).
-#   SKIP_INSTALL    Optional. Set to 1 to skip `npm ci`.
+#   SKIP_INSTALL    Optional. Set to 1 to skip `yarn install --immutable`.
 
 set -euo pipefail
 
@@ -42,9 +42,9 @@ export VITE_API_URL VITE_BASE_PATH
 
 echo "==> Building frontend (API=$VITE_API_URL, base=$VITE_BASE_PATH)"
 if [[ "${SKIP_INSTALL:-0}" != "1" ]]; then
-  (cd "$FRONTEND_DIR" && npm ci)
+  (cd "$FRONTEND_DIR" && corepack yarn install --immutable)
 fi
-(cd "$FRONTEND_DIR" && npm run build)
+(cd "$FRONTEND_DIR" && corepack yarn build)
 
 # SPA fallback for client-side routes + disable Jekyll processing on Pages.
 cp "$DIST_DIR/index.html" "$DIST_DIR/404.html"

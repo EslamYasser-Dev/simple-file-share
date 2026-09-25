@@ -86,7 +86,10 @@ export function Admin() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'analytics') void loadAnalytics(analyticsDays);
+    if (tab !== 'analytics') return;
+    void (async () => {
+      await loadAnalytics(analyticsDays);
+    })();
   }, [tab, analyticsDays, loadAnalytics]);
 
   useEffect(() => {
@@ -853,14 +856,16 @@ function CreateUserModal({
   const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  const [prevCreateOpen, setPrevCreateOpen] = useState(open);
+  if (prevCreateOpen !== open) {
+    setPrevCreateOpen(open);
     if (open) {
       setUsername('');
       setPassword('');
       setRole('member');
       setEnabled(true);
     }
-  }, [open]);
+  }
 
   const submit = async () => {
     if (!username.trim() || password.length < 4) {
@@ -956,12 +961,15 @@ function RoleEditorModal({
   const [perms, setPerms] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(role?.name ?? '');
-    setDescription(role?.description ?? '');
-    setPerms(role?.permissions ?? []);
-  }, [open, role]);
+  const [prevRoleEditor, setPrevRoleEditor] = useState({ open, role });
+  if (prevRoleEditor.open !== open || prevRoleEditor.role !== role) {
+    setPrevRoleEditor({ open, role });
+    if (open) {
+      setName(role?.name ?? '');
+      setDescription(role?.description ?? '');
+      setPerms(role?.permissions ?? []);
+    }
+  }
 
   const toggle = (p: string) => {
     setPerms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
@@ -1057,9 +1065,11 @@ function ResetPasswordModal({
   const { t } = useI18n();
   const [password, setPassword] = useState('');
 
-  useEffect(() => {
+  const [prevResetOpen, setPrevResetOpen] = useState(open);
+  if (prevResetOpen !== open) {
+    setPrevResetOpen(open);
     if (open) setPassword('');
-  }, [open]);
+  }
 
   return (
     <Modal open={open} onClose={() => !saving && onClose()} title={t('admin.resetPasswordTitle', { name: username })} size="sm">

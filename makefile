@@ -25,7 +25,7 @@ COVER_FILE   := $(BACKEND_DIR)/coverage.out
 COVER_MIN    ?= 50
 
 # ---- Node --------------------------------------------------------------------
-NPM          ?= npm
+YARN         ?= corepack yarn
 
 # ---- Docker ------------------------------------------------------------------
 IMAGE_NAME   ?= simple-file-share
@@ -55,9 +55,9 @@ backend-deps: ## Download Go modules
 	@cd $(BACKEND_DIR) && $(GO) mod download
 
 .PHONY: frontend-deps
-frontend-deps: ## Install frontend dependencies (npm ci)
+frontend-deps: ## Install frontend dependencies (yarn install --immutable)
 	@echo "📦 Installing frontend dependencies..."
-	@cd $(FRONTEND_DIR) && $(NPM) ci
+	@cd $(FRONTEND_DIR) && $(YARN) install --immutable
 
 # ==============================================================================
 # Formatting & static analysis
@@ -84,7 +84,7 @@ vet: ## Run go vet
 .PHONY: lint-frontend
 lint-frontend: ## Lint the frontend
 	@echo "🔬 Linting frontend..."
-	@cd $(FRONTEND_DIR) && $(NPM) run lint
+	@cd $(FRONTEND_DIR) && $(YARN) lint
 
 .PHONY: lint
 lint: fmt-check vet lint-frontend ## Run every linter
@@ -113,7 +113,7 @@ build-local: ## Build the server for the host platform
 .PHONY: frontend-build
 frontend-build: ## Build the React frontend into frontend/dist
 	@echo "🔨 Building frontend..."
-	@cd $(FRONTEND_DIR) && $(NPM) run build
+	@cd $(FRONTEND_DIR) && $(YARN) build
 	@echo "✅ Frontend build complete"
 
 .PHONY: build-all
@@ -133,8 +133,12 @@ test-backend: ## Run backend tests with coverage
 
 .PHONY: test-frontend
 test-frontend: ## Run frontend tests (skipped when no test script)
-	@echo "🧪 Running frontend tests..."
-	@cd $(FRONTEND_DIR) && $(NPM) run test --if-present
+	@if grep -q '"test":' $(FRONTEND_DIR)/package.json; then \
+		echo "🧪 Running frontend tests..."; \
+		cd $(FRONTEND_DIR) && $(YARN) test; \
+	else \
+		echo "⏭  No frontend test script — skipped"; \
+	fi
 
 .PHONY: coverage
 coverage: test-backend ## Generate the HTML coverage report
@@ -162,7 +166,17 @@ run-prod: build-local frontend-build ## Run the server in production mode
 
 .PHONY: dev-frontend
 dev-frontend: ## Start the Vite dev server
-	@cd $(FRONTEND_DIR) && $(NPM) run dev
+	@cd $(FRONTEND_DIR) && $(YARN) dev
+
+# ==============================================================================
+# Development
+# ==============================================================================
+.PHONY: dev
+dev: ## Run backend + frontend dev servers together
+	@trap 'kill 0' EXIT INT TERM; \
+	(cd $(FRONTEND_DIR) && $(YARN) dev) & \
+	$(MAKE) run & \
+	wait
 
 # ==============================================================================
 # Docker
