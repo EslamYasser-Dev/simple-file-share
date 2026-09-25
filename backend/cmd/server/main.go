@@ -137,7 +137,10 @@ func main() {
 
 	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
 	authenticateService := services.NewAuthenticateService(authProvider)
-	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
+	tlsGenerator := tls.NewPersistedTLSCertGenerator(
+		&tls.InMemoryTLSCertGenerator{},
+		filepath.Join(rootDir, ".file-share", "tls"),
+	)
 
 	jwtSecret := cfg.GetJWTSecret()
 	enforceJWTSecretPolicy(logger, cfg, jwtSecret)
@@ -292,6 +295,7 @@ func main() {
 		Revoke:          handlers.NewRevokeHandler(tokenService),
 		OAuthStart:      handlers.NewOAuthStartHandler(oauthService),
 		OAuthCb:         handlers.NewOAuthCallbackHandler(oauthService),
+		GRPCCert:        handlers.NewGRPCCertHandler(tlsGenerator),
 	}
 
 	server := xhttp.NewServer(
@@ -306,7 +310,9 @@ func main() {
 	server.ConfigureTLS(cfg.EnableTLS())
 
 	if cfg.EnableGRPC() {
-		authService := grpcapi.NewAuthService(registerService, usersService, authenticateService, cfg.EnableSignup())
+		authService := grpcapi.NewAuthService(registerService, usersService, authenticateService, userInfoService, cfg.EnableSignup(), tokenService)
+		shareService := grpcapi.NewShareService(createShareService, listSharesService, revokeShareService)
+		eventsService := grpcapi.NewEventsService(eventBus)
 		fileService := grpcapi.NewFileService(
 			listService,
 			infoService,
@@ -321,16 +327,20 @@ func main() {
 			cfg.GetGRPCPort(),
 			logger,
 			tlsGenerator,
-			cfg.EnableTLS(),
+			cfg.EnableGRPCTLS(),
 			authenticateService,
+			tokenService,
 			cfg.EnableAuth(),
 			authService,
+			shareService,
+			eventsService,
 			fileService,
 		)
 		if err != nil {
 			logger.Fatal("Failed to create gRPC server", "error", err)
 			return
 		}
+		server.SetGRPCHandler(grpcServer.Handler())
 		go func() {
 			if err := grpcServer.Start(); err != nil {
 				logger.Error("gRPC server failed", "error", err)

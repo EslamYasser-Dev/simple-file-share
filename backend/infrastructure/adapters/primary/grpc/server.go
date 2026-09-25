@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"time"
 
 	"google.golang.org/grpc"
@@ -36,13 +37,16 @@ func NewServer(
 	tlsGenerator ports.TLSCertGenerator,
 	enableTLS bool,
 	authService *services.AuthenticateService,
+	tokens *services.TokenService,
 	enableAuth bool,
 	authStore *AuthService,
+	shareService *ShareService,
+	eventsService *EventsService,
 	fileService *FileService,
 ) (*Server, error) {
 	opts := []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(unaryAuthInterceptor(authService, enableAuth)),
-		grpc.ChainStreamInterceptor(streamAuthInterceptor(authService, enableAuth)),
+		grpc.ChainUnaryInterceptor(unaryAuthInterceptor(authService, tokens, enableAuth)),
+		grpc.ChainStreamInterceptor(streamAuthInterceptor(authService, tokens, enableAuth)),
 	}
 
 	if enableTLS {
@@ -63,6 +67,8 @@ func NewServer(
 
 	grpcServer := grpc.NewServer(opts...)
 	filesharev1.RegisterAuthServiceServer(grpcServer, authStore)
+	filesharev1.RegisterShareServiceServer(grpcServer, shareService)
+	filesharev1.RegisterEventsServiceServer(grpcServer, eventsService)
 	filesharev1.RegisterFileServiceServer(grpcServer, fileService)
 
 	healthServer := health.NewServer()
@@ -78,6 +84,10 @@ func NewServer(
 		shutdownWait: 5 * time.Second,
 	}, nil
 }
+
+// Handler exposes the gRPC server as an http.Handler so the HTTP listener can
+// serve gRPC and REST on the same port (content-type routed).
+func (s *Server) Handler() http.Handler { return s.grpcServer }
 
 // Start listens on the configured port and blocks until the server stops.
 func (s *Server) Start() error {

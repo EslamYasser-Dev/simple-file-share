@@ -13,6 +13,9 @@ import (
 
 	_ "embed"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
 	"github.com/EslamYasser-Dev/simple-file-share/api"
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
@@ -52,6 +55,7 @@ type RouteHandlers struct {
 	Revoke          http.Handler
 	OAuthStart      http.Handler
 	OAuthCb         http.Handler
+	GRPCCert        http.Handler
 }
 
 type Server struct {
@@ -71,6 +75,7 @@ type Server struct {
 	// Chunked uploads issue one request per part; a dedicated higher budget
 	// keeps resume traffic from tripping the general API limiter.
 	uploadLimiter *IPLimiter
+	grpcHandler   http.Handler
 }
 
 func NewServer(
@@ -114,6 +119,13 @@ func (s *Server) SetStaticFileServer(dir string) {
 	s.staticDir = dir
 }
 
+// SetGRPCHandler mounts a gRPC http.Handler alongside the REST mux on this
+// server's listener. gRPC calls are detected by HTTP/2 + gRPC content type;
+// everything else goes to the normal mux.
+func (s *Server) SetGRPCHandler(h http.Handler) {
+	s.grpcHandler = h
+}
+
 func (s *Server) ConfigureTLS(enableTLS bool) {
 	s.useTLS = enableTLS
 }
@@ -138,7 +150,22 @@ func (s *Server) Start() error {
 
 	// Wrap the whole mux so the static SPA, share links, and swagger routes
 	// receive the same security headers as the API chains.
-	s.httpServer.Handler = securityHeaders(mux)
+	base := securityHeaders(mux)
+	if s.grpcHandler != nil {
+		grpcHandler := s.grpcHandler
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor >= 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+				grpcHandler.ServeHTTP(w, r)
+				return
+			}
+			base.ServeHTTP(w, r)
+		})
+		// h2c lets HTTP/2 cleartext (gRPC) through proxies or local clients
+		// share the listener; TLS mode gets HTTP/2 from Go's ALPN instead.
+		s.httpServer.Handler = h2c.NewHandler(inner, &http2.Server{})
+	} else {
+		s.httpServer.Handler = base
+	}
 
 	if s.useTLS {
 		certPEM, keyPEM, err := s.tlsGenerator.GenerateCert()
@@ -260,6 +287,10 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/auth/revoke", publicMiddleware(s.handlers.Revoke))
 	mux.Handle("/api/auth/oauth/{provider}/start", publicMiddleware(s.handlers.OAuthStart))
 	mux.Handle("/api/auth/oauth/{provider}/callback", publicMiddleware(s.handlers.OAuthCb))
+
+	// Public: the gRPC TLS certificate for client-side pinning, fetched over
+	// the trusted HTTPS API before the mobile app opens the proxied channel.
+	mux.Handle("/api/grpc/cert", publicMiddleware(s.handlers.GRPCCert))
 
 	// Public share links: the token is the credential. The route is rate-limited
 	// per client address so it cannot be swept for valid tokens.

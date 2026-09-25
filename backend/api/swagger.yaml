@@ -734,6 +734,24 @@ paths:
         "403":
           description: Forbidden
 
+  /api/grpc/cert:
+    get:
+      summary: gRPC TLS certificate for client pinning
+      description: >
+        PEM-encoded certificate served by the gRPC listener. Mobile clients
+        fetch it over the trusted HTTPS API before opening the TCP-proxied
+        gRPC channel. Returns 404 when gRPC TLS is disabled.
+      security: []
+      responses:
+        "200":
+          description: PEM certificate
+          content:
+            application/x-pem-file:
+              schema:
+                type: string
+        "404":
+          description: gRPC TLS disabled
+
   /health:
     get:
       summary: Health check

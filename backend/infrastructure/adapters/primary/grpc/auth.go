@@ -15,11 +15,14 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
-// publicMethods are callable without credentials. Authenticate validates its
-// own credentials, and Register/GetAuthInfo are account-bootstrap endpoints.
+// publicMethods are callable without credentials. Authenticate/Login validate
+// their own credentials; Logout and the bootstrap endpoints take no caller
+// identity (Logout revokes whatever token metadata carries, if any).
 var publicMethods = map[string]bool{
 	"/fileshare.v1.AuthService/Register":                             true,
 	"/fileshare.v1.AuthService/Authenticate":                         true,
+	"/fileshare.v1.AuthService/Login":                                true,
+	"/fileshare.v1.AuthService/Logout":                               true,
 	"/fileshare.v1.AuthService/GetAuthInfo":                          true,
 	"/grpc.health.v1.Health/Check":                                   true,
 	"/grpc.health.v1.Health/Watch":                                   true,
@@ -28,13 +31,14 @@ var publicMethods = map[string]bool{
 }
 
 const basicPrefix = "Basic "
+const bearerPrefix = "Bearer "
 
-func unaryAuthInterceptor(auth *services.AuthenticateService, enabled bool) grpc.UnaryServerInterceptor {
+func unaryAuthInterceptor(auth *services.AuthenticateService, tokens *services.TokenService, enabled bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if !enabled || auth == nil || publicMethods[info.FullMethod] {
 			return handler(ctx, req)
 		}
-		user, err := authenticate(ctx, auth)
+		user, err := authenticate(ctx, auth, tokens)
 		if err != nil {
 			return nil, err
 		}
@@ -42,12 +46,12 @@ func unaryAuthInterceptor(auth *services.AuthenticateService, enabled bool) grpc
 	}
 }
 
-func streamAuthInterceptor(auth *services.AuthenticateService, enabled bool) grpc.StreamServerInterceptor {
+func streamAuthInterceptor(auth *services.AuthenticateService, tokens *services.TokenService, enabled bool) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if !enabled || auth == nil || publicMethods[info.FullMethod] {
 			return handler(srv, ss)
 		}
-		user, err := authenticate(ss.Context(), auth)
+		user, err := authenticate(ss.Context(), auth, tokens)
 		if err != nil {
 			return err
 		}
@@ -55,9 +59,9 @@ func streamAuthInterceptor(auth *services.AuthenticateService, enabled bool) grp
 	}
 }
 
-// authenticate reads HTTP Basic credentials from incoming metadata and resolves
-// them to an account via the AuthenticateService use case.
-func authenticate(ctx context.Context, auth *services.AuthenticateService) (*models.User, error) {
+// authenticate resolves caller identity from the authorization metadata,
+// accepting a bearer access token (native clients) or HTTP Basic credentials.
+func authenticate(ctx context.Context, auth *services.AuthenticateService, tokens *services.TokenService) (*models.User, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing credentials")
@@ -66,7 +70,18 @@ func authenticate(ctx context.Context, auth *services.AuthenticateService) (*mod
 	if len(values) == 0 {
 		return nil, status.Error(codes.Unauthenticated, "missing credentials")
 	}
-	username, password, ok := parseBasic(values[0])
+	header := values[0]
+	if strings.HasPrefix(header, bearerPrefix) {
+		if tokens == nil {
+			return nil, status.Error(codes.Unauthenticated, "invalid authorization format")
+		}
+		user, err := tokens.Authenticate(strings.TrimSpace(header[len(bearerPrefix):]))
+		if err != nil {
+			return nil, status.Error(codes.Unauthenticated, "invalid token")
+		}
+		return user, nil
+	}
+	username, password, ok := parseBasic(header)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "invalid authorization format")
 	}

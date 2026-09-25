@@ -19,6 +19,24 @@ service AuthService {
   rpc GetAuthInfo(GetAuthInfoRequest) returns (AuthInfoResponse);
   // ListUsers returns accounts with storage usage (admin only).
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // Login exchanges credentials for a bearer access token (public).
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // Logout revokes the bearer token carried in request metadata (public; an
+  // expired or missing token is a no-op so clients can always sign out).
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+}
+
+// ShareService mirrors the HTTP share API.
+service ShareService {
+  rpc CreateShare(CreateShareRequest) returns (Share);
+  rpc ListShares(ListSharesRequest) returns (ListSharesResponse);
+  rpc RevokeShare(RevokeShareRequest) returns (RevokeShareResponse);
+}
+
+// EventsService streams live application events for native clients
+// (the browser keeps using HTTP Server-Sent Events).
+service EventsService {
+  rpc Subscribe(SubscribeRequest) returns (stream EventMessage);
 }
 
 // FileService mirrors the HTTP file API.
@@ -40,6 +58,11 @@ message User {
   bool is_admin = 2;
   string role = 3;
   bool enabled = 4;
+  int64 quota_bytes = 5;
+  int64 size = 6;
+  int64 files = 7;
+  repeated string permissions = 8;
+  string created_at = 9;
 }
 
 message AuthInfoResponse {
@@ -74,6 +97,61 @@ message UserStats {
 
 message ListUsersResponse {
   repeated UserStats users = 1;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string token_type = 2;
+  int64 expires_in = 3;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {
+  string status = 1;
+}
+
+message CreateShareRequest {
+  string path = 1;
+  int64 expires_in_seconds = 2;
+}
+
+message Share {
+  string token = 1;
+  string path = 2;
+  string name = 3;
+  string owner = 4;
+  string created_at = 5;
+  string expires_at = 6;
+}
+
+message ListSharesRequest {}
+
+message ListSharesResponse {
+  repeated Share shares = 1;
+}
+
+message RevokeShareRequest {
+  string token = 1;
+}
+
+message RevokeShareResponse {
+  string message = 1;
+}
+
+message SubscribeRequest {}
+
+message EventMessage {
+  string type = 1;
+  string path = 2;
+  string user = 3;
+  string at = 4;
+  int64 bytes = 5;
 }
 
 message FileInfo {

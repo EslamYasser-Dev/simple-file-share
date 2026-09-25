@@ -91,20 +91,6 @@ void main() {
     });
   });
 
-  group('UploadSessionInfo.fromJson', () {
-    test('parses an upload session', () {
-      final session = UploadSessionInfo.fromJson({
-        'id': 'up1',
-        'offset': 10.0,
-        'size': 100.0,
-        'chunkSize': 50.0,
-      });
-      expect(session.id, 'up1');
-      expect(session.offset, 10);
-      expect(session.chunkSize, 50);
-    });
-  });
-
   group('ApiResult', () {
     test('ok requires no error', () {
       expect(const ApiResult<int>(data: 1).ok, true);

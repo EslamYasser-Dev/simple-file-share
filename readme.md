@@ -86,9 +86,9 @@ Simple File Share is a modern web application that provides secure file manageme
 ### Mobile
 - **Framework**: Flutter with Riverpod state management
 - **Language**: Dart
-- **Auth**: JWT via `Authorization: Bearer` (token stored in flutter_secure_storage)
-- **Features**: Browse/upload/download, share links, usage bar, live SSE events
-- **Config**: `--dart-define=API_BASE_URL=...` points at the Go API base URL
+- **Transport**: gRPC (`package:grpc`) — JWT via `authorization: Bearer` metadata (token stored in flutter_secure_storage)
+- **Features**: Browse/upload/download, share links, usage bar, live gRPC event stream
+- **Config**: `--dart-define=API_BASE_URL=...` sets the API base URL; the gRPC target (host/port/TLS) is derived from it, and can be pointed at a TCP proxy with `--dart-define=GRPC_HOST=... --dart-define=GRPC_PORT=...`. Secure targets fetch the server certificate from `GET /api/grpc/cert` over HTTPS and pin it on the channel.
 
 ## 📚 API Documentation
 
@@ -299,15 +299,18 @@ GET /swagger.yaml  # OpenAPI 3.0 spec
 
 The same use cases are exposed over gRPC for native mobile clients. The proto
 contract lives at `backend/api/proto/fileshare/v1/fileshare.proto`; generated
-Go stubs live beside it.
+Go stubs live beside it (Dart stubs under `mobile/lib/src/grpc/`).
 
 - **Services**
-  - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (users.read)
+  - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (users.read), `Login` (issues JWT), `Logout` (revokes bearer token)
   - `fileshare.v1.FileService`: `ListFiles`, `GetFileInfo`, `SearchFiles`, `CreateDirectory`, `DeletePath`, `UpdateFileContent`, `UploadFile` (client streaming), `DownloadFile` (server streaming)
-- **Authentication**: HTTP Basic credentials in request metadata (`authorization: Basic ...`), matching the web API. `Register`, `Authenticate`, and `GetAuthInfo` are public.
-- **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 64 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk.
-- **Server**: health (`grpc.health.v1.Health`) and server reflection are enabled for tooling.
-- **Configuration**: `ENABLE_GRPC` (default `true`) and `GRPC_PORT` (default `50051`). TLS is reused from `ENABLE_TLS`.
+  - `fileshare.v1.ShareService`: `CreateShare`, `ListShares`, `RevokeShare`
+  - `fileshare.v1.EventsService`: `Subscribe` (server streaming of `EventMessage`, per-user filtered)
+- **Authentication**: bearer JWT in request metadata (`authorization: Basic ...` or `authorization: Bearer ...`), matching the web API. `Register`, `Authenticate`, `GetAuthInfo`, `Login`, and `Logout` are public.
+- **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 64 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk; `Subscribe` pushes the same event types as SSE (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, ...).
+- **Server**: served on the HTTP port (cleartext HTTP/2 / h2c — what the mobile app uses by default) and on `GRPC_PORT`; health (`grpc.health.v1.Health`) and server reflection are enabled for tooling. `ENABLE_GRPC_TLS` (default: follows `ENABLE_TLS`) turns on TLS for the gRPC listener independently of HTTP, so an edge-terminated deployment can serve plain HTTP while a TCP-proxied `GRPC_PORT` speaks TLS.
+- **Configuration**: `ENABLE_GRPC` (default `true`), `GRPC_PORT` (default `50051`), `ENABLE_GRPC_TLS` (default: follows `ENABLE_TLS`).
+- **Certificate pinning**: when gRPC TLS is enabled, `GET /api/grpc/cert` returns the PEM certificate the gRPC listener serves (404 when disabled). The self-signed certificate is persisted under `ROOT_DIR/.file-share/tls/` and shared by every listener, so mobile clients can fetch it once over the trusted HTTPS API and pin it — it stays valid across restarts.
 
 ```bash
 # Inspect the schema (server reflection) with grpcurl
@@ -455,7 +458,7 @@ graph LR
 ├── website/                          # Next.js marketing landing site (EN/AR, static export)
 ├── mobile/                           # Flutter app (Riverpod, Dart)
 │   ├── lib/src/screens/              # Login, files, shares, account screens
-│   ├── lib/src/services/             # REST client, JWT auth, SSE stream
+│   ├── lib/src/services/             # gRPC client, JWT auth, event stream
 │   └── lib/src/state/                # Riverpod auth controller
 ├── .github/workflows/
 │   ├── ci.yml                        # CI checks: backend, frontend, website, mobile, Docker
@@ -580,6 +583,7 @@ Two deployment shapes are supported:
 | `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
 | `ENABLE_TLS` | `false` | Serve HTTPS with generated certs |
 | `ENABLE_GRPC` | `true` | Toggle the gRPC server for mobile clients |
+| `ENABLE_GRPC_TLS` | follows `ENABLE_TLS` | Toggle TLS on the gRPC listener independently of HTTP (for edge-terminated + TCP-proxied deployments) |
 | `GRPC_PORT` | `50051` | gRPC listen port |
 | `VERSION_KEEP` | `0` (keep all) | Historical snapshots retained per file; oldest are pruned first |
 | `STORAGE_BACKEND` | `local` | `local` (filesystem) or `s3` (S3-compatible object store) |
@@ -590,6 +594,7 @@ Two deployment shapes are supported:
 | `S3_PREFIX` | `""` | Optional key prefix inside the bucket (e.g. tenant id) |
 | `S3_PATH_STYLE` | auto | `true` forces `endpoint/bucket/key` addressing |
 | `API_BASE_URL` | platform default | Mobile app only (`--dart-define`): absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
+| `GRPC_HOST` / `GRPC_PORT` | derived from `API_BASE_URL` | Mobile app only (`--dart-define`): override the gRPC target, e.g. a Railway TCP proxy (`GRPC_HOST=shuttle.proxy.rlwy.net GRPC_PORT=<proxy-port>`); TLS still follows the `API_BASE_URL` scheme |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
@@ -602,6 +607,19 @@ restarts on failure. Set variables **`JWT_SECRET`** (`openssl rand -hex 32`) and
 (add a Railway volume mounted at `/data` for persistence; note Railway volumes
 are root-owned while the server runs as `nobody`). Railway injects `PORT`,
 which the server honors automatically.
+
+**Mobile gRPC (TCP proxy):** Railway's edge terminates TLS as HTTP/1.1 toward
+the origin, so same-port gRPC does not survive it. Expose gRPC through a raw
+TCP proxy instead:
+
+1. Set **`ENABLE_GRPC_TLS=true`** (keep HTTP plain — the edge handles that).
+2. Create a TCP proxy for `GRPC_PORT` (50051): Railway dashboard → service →
+   *Networking* → *TCP Proxy* (or `railway tcp-proxy create --service <name>`),
+   and note the proxy host/port it prints.
+3. Build the mobile app with `--dart-define=GRPC_HOST=<proxy-host>
+   --dart-define=GRPC_PORT=<proxy-port>`; it pins the certificate from
+   `GET /api/grpc/cert` automatically. The certificate lives under
+   `ROOT_DIR/.file-share/tls/` and survives redeploys (keep the volume).
 
 ### Netlify UI + hosted API (split)
 
@@ -787,7 +805,7 @@ For support, please open an issue in the GitHub repository.
 - [x] **Real-time updates**: Live file/account events over Server-Sent Events
 - [x] **User management & RBAC**: Custom roles/permissions, account lifecycle, password reset, session revoke
 - [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
-- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, SSE)
+- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, live gRPC events)
 - [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
 
 ## 📈 Performance Notes

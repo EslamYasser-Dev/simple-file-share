@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/events"
-	"github.com/EslamYasser-Dev/simple-file-share/domain/models"
 )
 
 const sseHeartbeat = 15 * time.Second
@@ -70,7 +69,7 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			if !shouldDeliver(e, subscriber) {
+			if !events.ShouldDeliver(e, subscriber) {
 				continue
 			}
 			payload, err := json.Marshal(e)
@@ -83,17 +82,4 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
-}
-
-// shouldDeliver filters events for the connected subscriber. Nil subscribers
-// (auth disabled / system view) receive everything; otherwise a user sees
-// their own events plus broadcast events (empty actor).
-func shouldDeliver(e events.Event, user *models.User) bool {
-	if user == nil {
-		return true
-	}
-	if e.User == "" {
-		return true
-	}
-	return e.User == user.Username
 }
