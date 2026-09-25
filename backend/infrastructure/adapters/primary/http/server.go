@@ -55,6 +55,7 @@ type RouteHandlers struct {
 	Revoke          http.Handler
 	OAuthStart      http.Handler
 	OAuthCb         http.Handler
+	GRPCCert        http.Handler
 }
 
 type Server struct {
@@ -286,6 +287,10 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/auth/revoke", publicMiddleware(s.handlers.Revoke))
 	mux.Handle("/api/auth/oauth/{provider}/start", publicMiddleware(s.handlers.OAuthStart))
 	mux.Handle("/api/auth/oauth/{provider}/callback", publicMiddleware(s.handlers.OAuthCb))
+
+	// Public: the gRPC TLS certificate for client-side pinning, fetched over
+	// the trusted HTTPS API before the mobile app opens the proxied channel.
+	mux.Handle("/api/grpc/cert", publicMiddleware(s.handlers.GRPCCert))
 
 	// Public share links: the token is the credential. The route is rate-limited
 	// per client address so it cannot be swept for valid tokens.

@@ -50,6 +50,7 @@ func (p *DevConfigProvider) GetDefaultQuotaBytes() int64 { return p.defaultQuota
 func (p *DevConfigProvider) GetGRPCPort() string         { return p.grpcPort }
 func (p *DevConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *DevConfigProvider) EnableTLS() bool             { return resolveBoolEnv("ENABLE_TLS", false) }
+func (p *DevConfigProvider) EnableGRPCTLS() bool         { return resolveBoolEnv("ENABLE_GRPC_TLS", resolveBoolEnv("ENABLE_TLS", false)) }
 func (p *DevConfigProvider) EnableAuth() bool            { return resolveBoolEnv("ENABLE_AUTH", false) }
 func (p *DevConfigProvider) EnableSignup() bool          { return resolveEnableSignup() }
 func (p *DevConfigProvider) GetJWTSecret() string        { return p.jwtSecret }

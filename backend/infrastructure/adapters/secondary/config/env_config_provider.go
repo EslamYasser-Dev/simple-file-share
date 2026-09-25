@@ -15,6 +15,7 @@ type EnvConfigProvider struct {
 	maxUploadBytes    int64
 	defaultQuotaBytes int64
 	enableTLS         bool
+	enableGRPCTLS     bool
 	enableAuth        bool
 	enableSignup      bool
 	enableGRPC        bool
@@ -30,6 +31,8 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		return nil, err
 	}
 
+	enableTLS := resolveBoolEnv("ENABLE_TLS", true)
+
 	return &EnvConfigProvider{
 		port:              resolvePort(defaultPort),
 		username:          resolveUsername(),
@@ -38,7 +41,8 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		grpcPort:          resolveGRPCPort(),
 		maxUploadBytes:    resolveMaxUploadBytes(),
 		defaultQuotaBytes: resolveDefaultQuotaBytes(),
-		enableTLS:         resolveBoolEnv("ENABLE_TLS", true),
+		enableTLS:         enableTLS,
+		enableGRPCTLS:     resolveBoolEnv("ENABLE_GRPC_TLS", enableTLS),
 		enableAuth:        resolveBoolEnv("ENABLE_AUTH", true),
 		enableSignup:      resolveEnableSignup(),
 		enableGRPC:        resolveEnableGRPC(),
@@ -58,6 +62,7 @@ func (p *EnvConfigProvider) GetDefaultQuotaBytes() int64 { return p.defaultQuota
 func (p *EnvConfigProvider) GetGRPCPort() string         { return p.grpcPort }
 func (p *EnvConfigProvider) EnableGRPC() bool            { return p.enableGRPC }
 func (p *EnvConfigProvider) EnableTLS() bool             { return p.enableTLS }
+func (p *EnvConfigProvider) EnableGRPCTLS() bool         { return p.enableGRPCTLS }
 func (p *EnvConfigProvider) EnableAuth() bool            { return p.enableAuth }
 func (p *EnvConfigProvider) EnableSignup() bool          { return p.enableSignup }
 func (p *EnvConfigProvider) GetJWTSecret() string        { return p.jwtSecret }

@@ -137,7 +137,10 @@ func main() {
 
 	authProvider := auth.NewUserAuthProvider(userRepo, hasher)
 	authenticateService := services.NewAuthenticateService(authProvider)
-	tlsGenerator := &tls.InMemoryTLSCertGenerator{}
+	tlsGenerator := tls.NewPersistedTLSCertGenerator(
+		&tls.InMemoryTLSCertGenerator{},
+		filepath.Join(rootDir, ".file-share", "tls"),
+	)
 
 	jwtSecret := cfg.GetJWTSecret()
 	enforceJWTSecretPolicy(logger, cfg, jwtSecret)
@@ -292,6 +295,7 @@ func main() {
 		Revoke:          handlers.NewRevokeHandler(tokenService),
 		OAuthStart:      handlers.NewOAuthStartHandler(oauthService),
 		OAuthCb:         handlers.NewOAuthCallbackHandler(oauthService),
+		GRPCCert:        handlers.NewGRPCCertHandler(tlsGenerator),
 	}
 
 	server := xhttp.NewServer(
@@ -323,7 +327,7 @@ func main() {
 			cfg.GetGRPCPort(),
 			logger,
 			tlsGenerator,
-			cfg.EnableTLS(),
+			cfg.EnableGRPCTLS(),
 			authenticateService,
 			tokenService,
 			cfg.EnableAuth(),

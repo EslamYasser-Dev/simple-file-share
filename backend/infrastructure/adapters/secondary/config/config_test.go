@@ -144,3 +144,70 @@ func TestResolveRootDirRejectsTilde(t *testing.T) {
 		t.Fatalf("error should point at absolute paths, got: %v", err)
 	}
 }
+
+func TestEnvConfigGRPCTLSFallsBackToTLS(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ROOT_DIR", t.TempDir())
+	t.Setenv("ENABLE_TLS", "false")
+	t.Setenv("ENABLE_GRPC_TLS", "")
+
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableGRPCTLS() {
+		t.Fatal("expected gRPC TLS to follow ENABLE_TLS=false")
+	}
+}
+
+func TestEnvConfigGRPCTLSIndependentOverride(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ROOT_DIR", t.TempDir())
+	t.Setenv("ENABLE_TLS", "false")
+	t.Setenv("ENABLE_GRPC_TLS", "true")
+
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableTLS() {
+		t.Fatal("HTTP TLS must stay disabled for edge-terminated deployments")
+	}
+	if !cfg.EnableGRPCTLS() {
+		t.Fatal("expected gRPC TLS enabled independently of HTTP TLS")
+	}
+}
+
+func TestEnvConfigGRPCTLSDisableOverride(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ROOT_DIR", t.TempDir())
+	t.Setenv("ENABLE_TLS", "true")
+	t.Setenv("ENABLE_GRPC_TLS", "0")
+
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableTLS() {
+		t.Fatal("expected HTTP TLS enabled")
+	}
+	if cfg.EnableGRPCTLS() {
+		t.Fatal("expected gRPC TLS disabled by override")
+	}
+}
+
+func TestDevConfigGRPCTLS(t *testing.T) {
+	t.Setenv("ENABLE_TLS", "false")
+	t.Setenv("ENABLE_GRPC_TLS", "")
+	cfg, err := NewDevConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableGRPCTLS() {
+		t.Fatal("expected gRPC TLS to follow ENABLE_TLS=false in dev")
+	}
+	t.Setenv("ENABLE_GRPC_TLS", "true")
+	if !cfg.EnableGRPCTLS() {
+		t.Fatal("expected dev provider to read ENABLE_GRPC_TLS live")
+	}
+}

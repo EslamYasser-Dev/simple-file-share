@@ -12,6 +12,10 @@ type ConfigProvider interface {
 	// EnableGRPC toggles the gRPC primary adapter.
 	EnableGRPC() bool
 	EnableTLS() bool
+	// EnableGRPCTLS toggles TLS on the gRPC listener independently of the HTTP
+	// listener, so an edge-terminated deployment can serve plain HTTP while the
+	// TCP-proxied gRPC port still speaks TLS. Defaults to EnableTLS.
+	EnableGRPCTLS() bool
 	EnableAuth() bool
 	// EnableSignup toggles public self-registration via POST /api/auth/register.
 	EnableSignup() bool
