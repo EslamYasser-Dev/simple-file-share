@@ -207,7 +207,9 @@ function AuthGate() {
   }, [loadAuthInfo, setUser, t]);
 
   useEffect(() => {
-    void probe();
+    void (async () => {
+      await probe();
+    })();
   }, [probe]);
 
   useEffect(() => {

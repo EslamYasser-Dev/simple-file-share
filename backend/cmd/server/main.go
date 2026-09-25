@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -199,7 +200,7 @@ func main() {
 
 	// Persist every bus event to the analytics log (PII-free rollups for admins).
 	go func() {
-		ch, stop := eventBus.Subscribe(nil)
+		ch, stop := eventBus.Subscribe(context.Background())
 		defer stop()
 		for e := range ch {
 			_ = analyticsStore.Record(ports.AnalyticsEvent{

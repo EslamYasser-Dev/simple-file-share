@@ -18,8 +18,8 @@ The production build is embedded into and served by the Go backend.
 The dev server proxies `/api` to the backend (default `http://localhost:3000`).
 
 ```bash
-npm install
-npm run dev      # http://localhost:5173
+yarn install
+yarn dev         # http://localhost:5173
 ```
 
 Override the proxy target with `VITE_API_URL` in `.env` if the backend runs
@@ -29,10 +29,10 @@ elsewhere. Leave it empty to use the same origin.
 
 | Command | Description |
 | --- | --- |
-| `npm run dev` | Start the Vite dev server |
-| `npm run build` | Type-check (`tsc -b`) and build to `dist/` |
-| `npm run preview` | Preview the production build locally |
-| `npm run lint` | Run ESLint |
+| `yarn dev` | Start the Vite dev server |
+| `yarn build` | Type-check (`tsc -b`) and build to `dist/` |
+| `yarn preview` | Preview the production build locally |
+| `yarn lint` | Run ESLint |
 | `npx vite build --mode analyze` | Build with the bundle visualizer |
 
 ## Configuration
@@ -41,8 +41,8 @@ Build-time variables (see `src/config/index.ts`):
 
 - `VITE_API_URL` — API base URL; empty uses the current origin.
 - `VITE_MAX_UPLOAD_MB` — client-side upload size limit in MB; `0` = unlimited.
-- `VITE_BASE_PATH` — sub-path the app is served from; defaults to `/`. GitHub
-  project pages use `/<repo>/` (set automatically by the Pages deploy).
+- `VITE_BASE_PATH` — sub-path the app is served from; defaults to `/` (set it
+  when hosting the UI under a path prefix, e.g. `/files/`).
 
 ## Project structure
 

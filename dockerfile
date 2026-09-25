@@ -5,11 +5,11 @@ FROM node:20-alpine AS web-builder
 
 WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+COPY frontend/package.json frontend/yarn.lock frontend/.yarnrc.yml ./
+RUN corepack enable && yarn install --immutable
 
 COPY frontend/ ./
-RUN npm run build
+RUN yarn build
 
 # =============================
 # BACKEND BUILD STAGE
@@ -43,7 +43,8 @@ COPY --from=web-builder /app/frontend/dist /app/dist
 # Data directory writable by the non-root runtime user.
 RUN mkdir -p /data && chown -R nobody:nobody /data
 
-WORKDIR /data
+# The server refuses ROOT_DIR == working directory, so cwd must not be /data.
+WORKDIR /app
 ENV APP_ENV=production \
     PORT=22010 \
     GRPC_PORT=50051 \

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_URL, GITHUB_URL } from "../lib/site";
+import { getDict, lp, type Locale } from "../lib/i18n";
+import { LanguageSwitcher } from "./language-switcher";
 
 export function Background({ light = false }: { light?: boolean }) {
   return (
@@ -21,11 +23,12 @@ export function Background({ light = false }: { light?: boolean }) {
   );
 }
 
-export function Header() {
+export function Header({ locale }: { locale: Locale }) {
+  const d = getDict(locale);
   return (
     <header className="sticky top-0 z-40 border-b border-paper/10 bg-void/95">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-3">
+        <Link href={lp(locale, "/")} className="flex items-center gap-3">
           <span className="flex h-7 w-7 items-center justify-center border border-paper/25 bg-accent-dim">
             <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
               <path
@@ -40,14 +43,23 @@ export function Header() {
           </span>
         </Link>
         <nav className="hidden items-center gap-6 font-mono text-[11px] uppercase tracking-wider text-muted md:flex">
-          <Link href="/#features" className="transition hover:text-paper">
-            Features
+          <Link
+            href={lp(locale, "/#features")}
+            className="transition hover:text-paper"
+          >
+            {d.nav.features}
           </Link>
-          <Link href="/#compare" className="transition hover:text-paper">
-            Compare
+          <Link
+            href={lp(locale, "/#compare")}
+            className="transition hover:text-paper"
+          >
+            {d.nav.compare}
           </Link>
-          <Link href="/getting-started/" className="transition hover:text-paper">
-            Install
+          <Link
+            href={lp(locale, "/getting-started/")}
+            className="transition hover:text-paper"
+          >
+            {d.nav.install}
           </Link>
           <a
             href={GITHUB_URL}
@@ -59,19 +71,20 @@ export function Header() {
           </a>
         </nav>
         <div className="flex items-center gap-3">
+          <LanguageSwitcher />
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
             className="hidden border border-paper/20 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-paper/80 transition hover:border-paper/40 hover:text-paper sm:inline-flex"
           >
-            Source
+            {d.nav.source}
           </a>
           <a
             href={APP_URL}
             className="inline-flex border border-accent/50 bg-accent-dim px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-accent transition hover:bg-accent/20"
           >
-            Open app
+            {d.nav.openApp}
           </a>
         </div>
       </div>
@@ -79,19 +92,26 @@ export function Header() {
   );
 }
 
-export function Footer() {
+export function Footer({ locale }: { locale: Locale }) {
+  const d = getDict(locale);
   return (
     <footer className="border-t border-paper/10">
       <div className="mx-auto flex w-full max-w-5xl flex-col items-start justify-between gap-4 px-5 py-8 sm:flex-row sm:items-center">
         <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
-          © {new Date().getFullYear()} FileShare · self-hosted
+          © {new Date().getFullYear()} FileShare · {d.footer.tagline}
         </p>
         <div className="flex flex-wrap gap-5 font-mono text-[11px] uppercase tracking-wider text-muted">
-          <Link href="/#features" className="transition hover:text-paper">
-            Features
+          <Link
+            href={lp(locale, "/#features")}
+            className="transition hover:text-paper"
+          >
+            {d.footer.features}
           </Link>
-          <Link href="/getting-started/" className="transition hover:text-paper">
-            Install
+          <Link
+            href={lp(locale, "/getting-started/")}
+            className="transition hover:text-paper"
+          >
+            {d.footer.install}
           </Link>
           <a
             href={GITHUB_URL}
@@ -102,7 +122,7 @@ export function Footer() {
             GitHub
           </a>
           <a href={APP_URL} className="transition hover:text-paper">
-            App
+            {d.footer.app}
           </a>
         </div>
       </div>
@@ -113,16 +133,18 @@ export function Footer() {
 export function SiteShell({
   children,
   light = false,
+  locale = "en",
 }: {
   children: ReactNode;
   light?: boolean;
+  locale?: Locale;
 }) {
   return (
     <div className={light ? "light-site min-h-screen bg-void" : undefined}>
       <Background light={light} />
-      <Header />
+      <Header locale={locale} />
       {children}
-      <Footer />
+      <Footer locale={locale} />
     </div>
   );
 }
@@ -133,22 +155,25 @@ export function DocsShell({
   description,
   children,
   aside,
+  locale = "en",
 }: {
   eyebrow: string;
   title: string;
   description: string;
   children: ReactNode;
   aside?: ReactNode;
+  locale?: Locale;
 }) {
+  const d = getDict(locale);
   return (
-    <SiteShell>
+    <SiteShell locale={locale}>
       <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-10">
         <nav
-          aria-label="Breadcrumb"
+          aria-label={d.docs.breadcrumb}
           className="mb-8 font-mono text-[11px] uppercase tracking-wider text-muted"
         >
-          <Link href="/" className="transition hover:text-paper">
-            Home
+          <Link href={lp(locale, "/")} className="transition hover:text-paper">
+            {d.nav.home}
           </Link>
           <span className="mx-2 text-paper/30">/</span>
           <span className="text-paper/70">{eyebrow}</span>
@@ -190,16 +215,19 @@ export function Step({
   n,
   title,
   children,
+  locale = "en",
 }: {
   n: string;
   title: string;
   children: ReactNode;
+  locale?: Locale;
 }) {
+  const d = getDict(locale);
   return (
     <section className="panel mb-5 p-6">
       <div className="mb-3 flex items-center gap-3">
         <span className="font-mono text-[11px] uppercase tracking-wider text-accent">
-          Step {n}
+          {d.docs.step} {n}
         </span>
         <h2 className="font-display text-lg font-semibold text-paper">
           {title}

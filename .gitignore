@@ -4,6 +4,7 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.yarn/
 pnpm-debug.log*
 lerna-debug.log*
 
@@ -36,3 +37,8 @@ backend/coverage.out
 # Runtime file storage
 data/
 .file-share-data/
+
+# Local secrets (never commit)
+.env
+.env.*
+!.env.example

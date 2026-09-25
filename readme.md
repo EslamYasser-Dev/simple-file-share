@@ -77,12 +77,18 @@ Simple File Share is a modern web application that provides secure file manageme
 - **State Management**: Zustand (global stores) with selectors
 - **Internationalization**: English/Arabic with RTL layout and persisted preference
 
-### Mobile
-- **Framework**: React Native with Expo SDK 57 and Expo Router
+### Website
+- **Framework**: Next.js App Router with static export (`output: "export"`)
 - **Language**: TypeScript
-- **Auth**: JWT via `Authorization: Bearer` (token stored in SecureStore)
+- **Internationalization**: English/Arabic with EN/AR route groups and RTL
+- **Deploy**: static export (`output: "export"`) — upload `website/out/` to any static host
+
+### Mobile
+- **Framework**: Flutter with Riverpod state management
+- **Language**: Dart
+- **Auth**: JWT via `Authorization: Bearer` (token stored in flutter_secure_storage)
 - **Features**: Browse/upload/download, share links, usage bar, live SSE events
-- **Config**: `EXPO_PUBLIC_API_URL` points at the Go API base URL
+- **Config**: `--dart-define=API_BASE_URL=...` points at the Go API base URL
 
 ## 📚 API Documentation
 
@@ -446,14 +452,13 @@ graph LR
 │           ├── primary/              # Driving adapters: http/, grpc/, authctx/
 │           └── secondary/            # Driven adapters: fs/, auth/, config/, tls/, logging/, memory/
 ├── frontend/                         # React + TypeScript + Vite SPA (see frontend/README.md)
-├── mobile/                           # Expo React Native app (Expo Router, TypeScript)
-│   ├── src/app/                      # Route screens (`_layout`, login, tabs)
-│   ├── src/services/                 # REST client, JWT auth, SSE stream
-│   └── src/config/                   # EXPO_PUBLIC_API_URL resolution
-├── scripts/
-│   └── deploy-pages.sh               # Build + publish the frontend to GitHub Pages
+├── website/                          # Next.js marketing landing site (EN/AR, static export)
+├── mobile/                           # Flutter app (Riverpod, Dart)
+│   ├── lib/src/screens/              # Login, files, shares, account screens
+│   ├── lib/src/services/             # REST client, JWT auth, SSE stream
+│   └── lib/src/state/                # Riverpod auth controller
 ├── .github/workflows/
-│   ├── ci.yml                        # CI checks + GitHub Pages deploy (prod, PR previews, gh-pages branch)
+│   ├── ci.yml                        # CI checks: backend, frontend, website, mobile, Docker
 │   └── release.yml                   # Container image release
 ├── dockerfile                        # Multi-stage build (frontend → Go → distroless-ish runtime)
 ├── docker-compose.yml
@@ -511,12 +516,12 @@ graph LR
 
 2. **Install dependencies**
    ```bash
-   npm install
+   yarn install
    ```
 
 3. **Start development server**
    ```bash
-   npm run dev
+   yarn dev
    ```
 
 ### Docker Setup
@@ -538,16 +543,15 @@ graph LR
    docker compose up --build
    ```
 
-### Mobile app (Expo)
+### Mobile app (Flutter)
 
 ```bash
 cd mobile
-npm install
-# Point the app at your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
-echo 'EXPO_PUBLIC_API_URL=http://10.0.2.2:3000' > .env.local
-npx expo start
-# typecheck + lint
-npx tsc --noEmit && npx expo lint
+flutter pub get
+# Run against your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
+# static analysis + unit tests
+flutter analyze && flutter test
 ```
 
 OAuth sign-in uses the browser session cookie flow, so the mobile app currently
@@ -557,8 +561,8 @@ supports username/password JWT login only.
 
 Two deployment shapes are supported:
 
-- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option B/C).
-- **Split** — publish the static UI to **GitHub Pages** and host the Go API separately (Option A). GitHub Pages cannot run the Go backend (uploads, auth, storage), so the two must be wired together via `VITE_API_URL`.
+- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option A/B).
+- **Split** — serve the static UI (and optionally the landing website) from any static host and run the Go API separately, wired together via `VITE_API_URL`. A static host cannot run the Go backend (uploads, auth, storage).
 
 ### Environment variables
 
@@ -585,47 +589,11 @@ Two deployment shapes are supported:
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | — | Credentials (required when `STORAGE_BACKEND=s3`) |
 | `S3_PREFIX` | `""` | Optional key prefix inside the bucket (e.g. tenant id) |
 | `S3_PATH_STYLE` | auto | `true` forces `endpoint/bucket/key` addressing |
-| `EXPO_PUBLIC_API_URL` | platform default | Mobile app only: absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
+| `API_BASE_URL` | platform default | Mobile app only (`--dart-define`): absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
-### Option A — GitHub Pages (frontend) + hosted API
-
-GitHub Pages serves the static React build; the Go API still runs on a Docker
-host (Option B/C). Cross-origin requests already work because the server sends
-permissive CORS headers.
-
-**1. Deploy the API** using Option B/C below, then note its public origin
-(e.g. `https://api.example.com`).
-
-**2. Publish the UI** — automatically via CI, or manually with the deploy script:
-
-- **CI (recommended):** in **Settings → Pages** set the source to
-  **GitHub Actions**, then in **Settings → Secrets and variables → Actions →
-  Variables** add `VITE_API_URL` = your API origin. Optionally add
-  `VITE_BASE_PATH` (`/` for `<user>.github.io` user/org pages; it defaults to
-  `/<repo>/` for project pages). The `ci.yml` workflow builds the frontend once
-  and on every push to `master`/`main`/`enhancements`:
-  - deploys it to GitHub Pages (Actions source),
-  - force-pushes it to the `gh-pages` branch as a legacy fallback,
-  - deploys each pull request to a Pages **preview** (same-repo PRs),
-  - and verifies it in the Docker image build.
-  
-  For a production deploy a missing `VITE_API_URL` fails the workflow with a
-  pointer to the repository variable (previews build fine without it).
-
-- **Script:**
-  ```bash
-  VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh
-  ```
-  The script runs `npm ci && npm run build`, adds the SPA `404.html` fallback
-  and `.nojekyll`, and force-pushes the result to the `gh-pages` branch. Then
-  set **Settings → Pages → Source: Deploy from a branch → `gh-pages` / root**.
-
-> **Auth note:** the UI signs in with HTTP Basic Auth against the API. Serve the
-> API over HTTPS so credentials are never sent in the clear.
-
-### Option B — Any Docker host
+### Option A — Any Docker host
 
 ```bash
 # Build the image (frontend + backend)
@@ -652,7 +620,7 @@ Then open `http://localhost:22010`.
 > directory and give it to that user first:
 > `mkdir -p data && sudo chown 65534:65534 data`.
 
-### Option C — Pull the published image
+### Option B — Pull the published image
 
 Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) triggers the
 release workflow, which builds the image and publishes it to
@@ -667,11 +635,11 @@ docker run -d --name file-share -p 22010:22010 \
   ghcr.io/eslamyasser-dev/simple-file-share:latest
 ```
 
-### Option D — Local production-mode smoke test
+### Option C — Local production-mode smoke test
 
 ```bash
 mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
-cd frontend && npm run build && cd ..  # builds frontend/dist
+cd frontend && yarn build && cd ..  # builds frontend/dist
 APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
 JWT_SECRET="$(openssl rand -hex 32)" \
 ADMIN_USERNAME=admin ADMIN_PASSWORD='local-smoke-only' ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
@@ -711,14 +679,14 @@ The frontend currently has no unit-test runner; CI type-checks, lints, and
 builds it instead:
 ```bash
 cd frontend
-npm run lint
-npm run build
+yarn lint
+yarn build
 ```
 
 ### Full suite
 ```bash
 cd backend && go vet ./... && go test -race ./... \
-  && cd ../frontend && npm run lint && npm run build
+  && cd ../frontend && yarn lint && yarn build
 ```
 
 ## 📊 Code Quality
@@ -738,7 +706,7 @@ Contributions are welcome — open an issue or submit a pull request.
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && npm run lint`) or the Make targets above
+5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && yarn lint`) or the Make targets above
 6. Submit a pull request
 
 ## 🔁 CI/CD
@@ -747,18 +715,15 @@ This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
   - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
-  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build (with Pages base path + `VITE_API_URL` from repository variables), with `dist/` uploaded as an artifact
+  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
+  - **Website** (Next.js): ESLint, `tsc` type check, static export
   - **Docker**: builds the production image (no push) to verify the Dockerfile
-  - **GitHub Pages** (production): on pushes to `master`/`main`/`enhancements`, the built frontend is deployed (Actions source) and force-pushed to the `gh-pages` branch as a legacy fallback
-  - **GitHub Pages** (PR preview): each pull request from the same repository deploys the built UI to Pages with a preview environment
-  - Requires `VITE_API_URL` for the production deploy and runs on push to `master`/`main`/`enhancements` and on pull requests
+  - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
   - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
   - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
-
-- **Pages**: managed inside `ci.yml` (build → production deploy on push → per-PR preview), with `scripts/deploy-pages.sh` as a standalone manual fallback
 
 ### Make targets
 
@@ -805,7 +770,7 @@ For support, please open an issue in the GitHub repository.
 - [x] **Real-time updates**: Live file/account events over Server-Sent Events
 - [x] **User management & RBAC**: Custom roles/permissions, account lifecycle, password reset, session revoke
 - [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
-- [x] **Mobile App**: Expo React Native client (browse, upload, download, share, usage, SSE)
+- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, SSE)
 - [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
 
 ## 📈 Performance Notes

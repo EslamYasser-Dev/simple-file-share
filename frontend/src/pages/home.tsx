@@ -45,8 +45,8 @@ export function Home() {
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const [historyItem, setHistoryItem] = useState<FileItem | null>(null);
-  const closePreview = useCallback(() => setPreviewItem(null), []);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
+  const closePreview = useCallback(() => setPreviewItem(null), []);
   const [, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { success, error, info } = useToast();
@@ -183,10 +183,12 @@ export function Home() {
     .filter((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-      let cmp = 0;
-      if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
-      else if (sortKey === 'size') cmp = a.size - b.size;
-      else cmp = a.modified.localeCompare(b.modified);
+      const cmp =
+        sortKey === 'name'
+          ? a.name.localeCompare(b.name)
+          : sortKey === 'size'
+            ? a.size - b.size
+            : a.modified.localeCompare(b.modified);
       return sortDir === 'asc' ? cmp : -cmp;
     });
 

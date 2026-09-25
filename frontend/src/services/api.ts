@@ -738,7 +738,7 @@ async function fetchBlob(endpoint: string, params: Record<string, string>): Prom
       credentials: 'include',
     });
   } catch (e) {
-    throw new Error(e instanceof Error ? e.message : 'Network request failed');
+    throw new Error(e instanceof Error ? e.message : 'Network request failed', { cause: e });
   }
   if (!response.ok) {
     if (response.status === 401) {

@@ -1,41 +1,41 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+This is a Flutter mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
 
-## Expo has changed — do not trust your training data
+## Flutter — verify before you write
 
-Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
+Flutter and package APIs change across releases. Before writing code that touches Flutter, Riverpod, dio, or any plugin API:
 
-1. Read the major version of the `expo` package in `package.json`.
-2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
-3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
+1. Read the versions in `pubspec.yaml` / `pubspec.lock`.
+2. Check the local package source when unsure: `~/.pub-cache/hosted/pub.dev/<package>-<version>/lib/`.
+3. Prefer `dart doc` / the package README over memory for plugin APIs (file_picker, share_plus, flutter_secure_storage).
 
 ## Commands
 
-Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).
+The Flutter SDK lives at `~/flutter` (add `export PATH="$HOME/flutter/bin:$PATH"` if the shell has no `flutter`).
 
 ```bash
-npx expo install <package>  # ALWAYS use instead of npm/yarn/pnpm/bun add — resolves SDK-compatible versions
-npx expo start              # start the dev server
-npx expo lint               # lint
-npx tsc --noEmit            # typecheck
-npx expo-doctor             # diagnose dependency and config issues
-npx expo install --fix      # fix incompatible package versions
+flutter pub get          # install dependencies
+flutter run              # run on a device/emulator
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000   # target a specific API
+flutter analyze          # static analysis (lint) — MUST be clean
+flutter test             # unit tests — MUST pass
+dart run flutter_launcher_icons   # regenerate launcher icons from assets/
 ```
 
-Run lint and typecheck before declaring any task done.
+Run `flutter analyze` and `flutter test` before declaring any task done. There is no Android SDK on this machine — analyze + test are the verification floor; never claim an emulator run.
 
-## Navigation & Routing
+## Architecture
 
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
-
-## Building with EAS
-
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
-Docs: https://docs.expo.dev/eas/index.md
+- **State**: Riverpod 3 (`flutter_riverpod`). Notifier/NotifierProvider for stateful controllers, Provider for services, `ConsumerWidget`/`ConsumerStatefulWidget` for widgets. Providers live in `lib/src/state/`.
+- **Services** (`lib/src/services/`): `api_client.dart` (dio + auth interceptor, REST + resumable upload + download), `events_service.dart` (SSE over dio stream, reconnect backoff), `token_store.dart` (flutter_secure_storage wrapper).
+- **Screens** (`lib/src/screens/`): auth gate → login or home shell (IndexedStack with files/shares/account tabs).
+- **Models/format helpers** in `lib/src/models.dart` and `lib/src/format.dart`; keep them pure — they are unit-tested in `test/`.
+- Config is compile-time: `String.fromEnvironment('API_BASE_URL')` with platform-appropriate fallbacks (Android emulator `10.0.2.2`, otherwise `localhost`). Never hardcode hostnames.
 
 ## Rules
 
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+- Token storage key is `fs_access_token` — matches the other clients; do not rename it.
+- Any 401 response must clear the token and flip auth state to signed-out (wired through `ApiClient.onUnauthorized`).
+- SSE events (`/api/events`) are authenticated and must reconnect with exponential backoff (1s → 30s); parsing is isolated in the pure `parseSseChunk` function — keep it testable.
+- Uploads: files > 4 MB use the resumable session API (`/api/uploads`, PATCH chunks, `Upload-Offset`, 409 → retry from `expected`); smaller files use multipart `/api/upload`.
+- Native folders (`android/`, `ios/`) are generated by `flutter create` — only edit manifest/plist entries that are deliberate (app label `File Share`, bundle id `dev.eslam.simplefileshare`), never regenerate them blindly.
+- App colors come from `SfsColors` in `lib/src/theme.dart` — use them instead of ad-hoc colors.

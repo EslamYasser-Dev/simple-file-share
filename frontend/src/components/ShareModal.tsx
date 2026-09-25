@@ -60,10 +60,12 @@ export function ShareModal({ item, onClose }: ShareModalProps) {
 
   useEffect(() => {
     if (!item) return;
-    setLinks([]);
-    setPendingRevoke(null);
-    setCopiedToken(null);
-    void refresh();
+    void (async () => {
+      setLinks([]);
+      setPendingRevoke(null);
+      setCopiedToken(null);
+      await refresh();
+    })();
   }, [item, refresh]);
 
   const selected = useMemo(
