@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "cd frontend && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn install --immutable",
-  "buildCommand": "cd frontend && corepack yarn build",
-  "outputDirectory": "frontend/dist"
-}
