@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -129,5 +130,17 @@ func TestResolveS3Settings(t *testing.T) {
 	}
 	if !s.PathStyle {
 		t.Fatal("custom endpoint should force path-style")
+	}
+}
+
+func TestResolveRootDirRejectsTilde(t *testing.T) {
+	t.Setenv("FILE_SHARE_ROOT", "")
+	t.Setenv("ROOT_DIR", "~/.local/share/file-share")
+	_, err := resolveRootDir()
+	if err == nil {
+		t.Fatal("expected an error for a tilde ROOT_DIR")
+	}
+	if !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("error should point at absolute paths, got: %v", err)
 	}
 }

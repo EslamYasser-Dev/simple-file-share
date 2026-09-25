@@ -30,7 +30,7 @@ YARN         ?= corepack yarn
 # ---- Docker ------------------------------------------------------------------
 IMAGE_NAME   ?= simple-file-share
 IMAGE_TAG    ?= $(VERSION)
-COMPOSE      ?= docker compose
+COMPOSE      ?= podman compose
 
 .DEFAULT_GOAL := help
 
@@ -179,22 +179,22 @@ dev: ## Run backend + frontend dev servers together
 	wait
 
 # ==============================================================================
-# Docker
+# Containers (Podman)
 # ==============================================================================
-.PHONY: docker-build
-docker-build: ## Build the Docker image
-	@docker build -f dockerfile -t $(IMAGE_NAME):$(IMAGE_TAG) -t $(IMAGE_NAME):latest .
+.PHONY: podman-build
+podman-build: ## Build the container image with Podman
+	@podman build -f dockerfile -t $(IMAGE_NAME):$(IMAGE_TAG) -t $(IMAGE_NAME):latest .
 
-.PHONY: docker-up
-docker-up: ## Start services with Docker Compose
+.PHONY: podman-up
+podman-up: ## Start services with Podman Compose
 	@$(COMPOSE) up --build -d
 
-.PHONY: docker-down
-docker-down: ## Stop Docker Compose services
+.PHONY: podman-down
+podman-down: ## Stop Podman Compose services
 	@$(COMPOSE) down
 
-.PHONY: docker-logs
-docker-logs: ## Tail Docker Compose logs
+.PHONY: podman-logs
+podman-logs: ## Tail Podman Compose logs
 	@$(COMPOSE) logs -f
 
 # ==============================================================================
