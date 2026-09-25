@@ -28,5 +28,30 @@ void main() {
       expect(target.host, 'example.test');
       expect(target.port, 443);
     });
+
+    test('host and port overrides target the TCP proxy', () {
+      final target = grpcTargetFrom(
+        'https://shares.up.railway.app',
+        host: 'shuttle.proxy.rlwy.net',
+        port: 15140,
+      );
+      expect(target.host, 'shuttle.proxy.rlwy.net');
+      expect(target.port, 15140);
+      expect(target.secure, true);
+    });
+
+    test('empty host override falls back to the base URL host', () {
+      final target = grpcTargetFrom('http://localhost:3000', host: '');
+      expect(target.host, 'localhost');
+      expect(target.port, 3000);
+      expect(target.secure, false);
+    });
+
+    test('port override without explicit base port keeps TLS default', () {
+      final target = grpcTargetFrom('https://example.test', port: 50051);
+      expect(target.host, 'example.test');
+      expect(target.port, 50051);
+      expect(target.secure, true);
+    });
   });
 }

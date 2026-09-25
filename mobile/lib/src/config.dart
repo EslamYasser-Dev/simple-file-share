@@ -1,6 +1,8 @@
 import 'dart:io' show Platform;
 
 const String _envApiUrl = String.fromEnvironment('API_BASE_URL');
+const String _envGrpcHost = String.fromEnvironment('GRPC_HOST');
+const String _envGrpcPort = String.fromEnvironment('GRPC_PORT');
 
 String get apiBaseUrl {
   final raw = _envApiUrl.trim();
@@ -23,14 +25,22 @@ class GrpcTarget {
   final bool secure;
 }
 
-GrpcTarget grpcTargetFrom(String baseUrl) {
+GrpcTarget grpcTargetFrom(
+  String baseUrl, {
+  String? host,
+  int? port,
+}) {
   final uri = Uri.parse(baseUrl.replaceAll(RegExp(r'/+$'), ''));
   final secure = uri.scheme != 'http';
   return GrpcTarget(
-    host: uri.host,
-    port: uri.hasPort ? uri.port : (secure ? 443 : 80),
+    host: (host == null || host.isEmpty) ? uri.host : host,
+    port: port ?? (uri.hasPort ? uri.port : (secure ? 443 : 80)),
     secure: secure,
   );
 }
 
-GrpcTarget get grpcTarget => grpcTargetFrom(apiBaseUrl);
+GrpcTarget get grpcTarget => grpcTargetFrom(
+      apiBaseUrl,
+      host: _envGrpcHost.trim(),
+      port: int.tryParse(_envGrpcPort.trim()),
+    );

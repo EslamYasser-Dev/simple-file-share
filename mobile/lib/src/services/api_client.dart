@@ -116,7 +116,7 @@ class ApiClient {
     String password,
   ) async {
     final result = await _guard(
-      (options) => _conn.auth.login(
+      (options) async => (await _conn.auth).login(
         LoginRequest()
           ..username = username
           ..password = password,
@@ -146,7 +146,7 @@ class ApiClient {
   Future<ApiResult<void>> revoke() async {
     try {
       final options = await _options();
-      await _conn.auth
+      await (await _conn.auth)
           .logout(LogoutRequest(), options: options)
           .timeout(_unaryTimeout);
     } catch (_) {}
@@ -156,7 +156,7 @@ class ApiClient {
 
   Future<ApiResult<AuthUser>> me() async {
     final result = await _guard(
-      (options) => _conn.auth.me(MeRequest(), options: options),
+      (options) async => (await _conn.auth).me(MeRequest(), options: options),
     );
     final user = result.data;
     if (user == null) {
@@ -170,7 +170,7 @@ class ApiClient {
 
   Future<ApiResult<List<FileItem>>> listFiles([String path = '']) =>
       _guard((options) async {
-        final response = await _conn.files.listFiles(
+        final response = await (await _conn.files).listFiles(
           ListFilesRequest()..path = path,
           options: options,
         );
@@ -178,14 +178,14 @@ class ApiClient {
       });
 
   Future<ApiResult<void>> createDirectory(String path) => _guardVoid(
-        (options) => _conn.files.createDirectory(
+        (options) async => (await _conn.files).createDirectory(
           CreateDirectoryRequest()..path = path,
           options: options,
         ),
       );
 
   Future<ApiResult<void>> deletePath(String path) => _guardVoid(
-        (options) => _conn.files.deletePath(
+        (options) async => (await _conn.files).deletePath(
           DeletePathRequest()..path = path,
           options: options,
         ),
@@ -196,7 +196,7 @@ class ApiClient {
     int expiresInSeconds,
   ) =>
       _guard((options) async {
-        final share = await _conn.shares.createShare(
+        final share = await (await _conn.shares).createShare(
           CreateShareRequest()
             ..path = path
             ..expiresInSeconds = Int64(expiresInSeconds),
@@ -206,7 +206,7 @@ class ApiClient {
       });
 
   Future<ApiResult<List<ShareItem>>> listShares() => _guard((options) async {
-        final response = await _conn.shares.listShares(
+        final response = await (await _conn.shares).listShares(
           ListSharesRequest(),
           options: options,
         );
@@ -214,7 +214,7 @@ class ApiClient {
       });
 
   Future<ApiResult<void>> revokeShare(String token) => _guardVoid(
-        (options) => _conn.shares.revokeShare(
+        (options) async => (await _conn.shares).revokeShare(
           RevokeShareRequest()..token = token,
           options: options,
         ),
@@ -231,7 +231,7 @@ class ApiClient {
     void Function(int loaded, int total)? onProgress,
   }) =>
       _guardVoid(
-        (options) => _conn.files.uploadFile(
+        (options) async => (await _conn.files).uploadFile(
           _uploadRequests(
             dirPath: dirPath,
             fileName: fileName,
@@ -296,7 +296,7 @@ class ApiClient {
       var first = true;
       final sink = File(savePath).openWrite();
       try {
-        final chunks = _conn.files.downloadFile(
+        final chunks = (await _conn.files).downloadFile(
           DownloadFileRequest()..path = path,
           options: await _options(unary: false),
         );

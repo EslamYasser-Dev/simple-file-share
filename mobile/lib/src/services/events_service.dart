@@ -79,7 +79,7 @@ class EventsService {
     }
     ResponseStream<EventMessage>? subscription;
     try {
-      subscription = _conn.events.subscribe(
+      subscription = (await _conn.events).subscribe(
         SubscribeRequest(),
         options: CallOptions(metadata: {'authorization': 'Bearer $token'}),
       );
