@@ -17,6 +17,7 @@ jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -52,7 +53,7 @@ jobs:
         run: |
           total=$(go tool cover -func=coverage.out | awk '/total:/ {gsub(/%/,"",$3); print $3}')
           echo "Total coverage: ${total}%"
-          awk -v t="$total" 'BEGIN { if (t+0 < 20) exit 1 }'
+          awk -v t="$total" 'BEGIN { if (t+0 < 40) exit 1 }'
 
       - name: Coverage report (HTML)
         if: always()
@@ -71,6 +72,7 @@ jobs:
   frontend:
     name: Frontend (Vite)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -121,6 +123,7 @@ jobs:
   website:
     name: Website (Next.js)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: website
@@ -163,6 +166,7 @@ jobs:
   mobile:
     name: Mobile (Flutter)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: mobile
@@ -189,6 +193,7 @@ jobs:
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [ backend, frontend ]
     steps:
       - name: Checkout
@@ -203,7 +208,34 @@ jobs:
           context: .
           file: ./dockerfile
           push: false
+          load: true
           tags: simple-file-share:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke test (health, login, UI)
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 22010:22010 \
+            -e JWT_SECRET="$(openssl rand -hex 32)" \
+            -e ADMIN_USERNAME=admin \
+            -e ADMIN_PASSWORD=ci-smoke-password-123 \
+            -e ENABLE_TLS=false \
+            simple-file-share:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:22010/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:22010/health >/dev/null
+          token=$(curl -sf -X POST http://127.0.0.1:22010/api/auth/token \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-smoke-password-123"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          test -n "$token"
+          curl -sf -o /dev/null http://127.0.0.1:22010/
+          echo "image smoke OK"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f smoke || true
 

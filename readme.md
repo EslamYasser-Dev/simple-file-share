@@ -561,8 +561,8 @@ supports username/password JWT login only.
 
 Two deployment shapes are supported:
 
-- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option A/B).
-- **Split** — serve the static UI (and optionally the landing website) from any static host and run the Go API separately, wired together via `VITE_API_URL`. A static host cannot run the Go backend (uploads, auth, storage).
+- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Railway, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (fastest: Railway below, then Option A/B).
+- **Split** — serve the static UI from any static host (Netlify below) and run the Go API separately, wired together via `VITE_API_URL`. A static host cannot run the Go backend (uploads, auth, storage).
 
 ### Environment variables
 
@@ -592,6 +592,23 @@ Two deployment shapes are supported:
 | `API_BASE_URL` | platform default | Mobile app only (`--dart-define`): absolute base URL of the Go API (e.g. `http://10.0.2.2:3000` on Android emulator) |
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
+
+### Railway (all-in-one, zero config)
+
+Create a Railway service from this repo — `railway.json` forces the Dockerfile
+build (the file is lowercase `dockerfile`), health-checks `/health`, and
+restarts on failure. Set variables **`JWT_SECRET`** (`openssl rand -hex 32`) and
+**`ADMIN_PASSWORD`**; leave `ROOT_DIR` unset so the image default `/data` applies
+(add a Railway volume mounted at `/data` for persistence; note Railway volumes
+are root-owned while the server runs as `nobody`). Railway injects `PORT`,
+which the server honors automatically.
+
+### Netlify UI + hosted API (split)
+
+`netlify.toml` builds the frontend and publishes `frontend/dist` with
+`VITE_API_URL` pinned to the API origin (currently
+`https://shares.up.railway.app`). In Netlify choose *Add new site → Import from
+Git* — the file is picked up automatically; edit it there if the API moves.
 
 ### Option A — Any Docker host
 
@@ -670,8 +687,8 @@ go test ./...              # unit + adapter tests
 go test -race ./...        # with the race detector (what CI runs)
 ```
 
-Coverage is enforced in CI with a **20% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The current
-suite sits at roughly **27%** overall, with the domain policy, auth, gRPC, and
+Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The current
+suite sits at roughly **49%** overall, with the domain policy, auth, gRPC, and
 handler packages much higher.
 
 ### Frontend
@@ -695,7 +712,7 @@ cd backend && go vet ./... && go test -race ./... \
 - ✅ **Typed errors**: Domain errors are mapped to HTTP/gRPC status codes in the adapters
 - ✅ **Resource safety**: Upload/download streams are closed via `defer`; ZIPs are built on the fly
 - ✅ **Input validation**: Paths are normalized and scoped through the domain policy
-- ✅ **CI gates**: module tidiness, `gofmt`, `go vet`, race tests with a coverage floor, ESLint, type check, and a Docker build
+- ✅ **CI gates**: module tidiness, `gofmt`, `go vet`, race tests with a coverage floor, ESLint, type check, and a Docker build + image smoke test
 
 ## 🤝 Contributing
 
@@ -714,15 +731,15 @@ Contributions are welcome — open an issue or submit a pull request.
 This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
-  - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
+  - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 40% coverage floor, and an HTML coverage report artifact
   - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
   - **Website** (Next.js): ESLint, `tsc` type check, static export
-  - **Docker**: builds the production image (no push) to verify the Dockerfile
+  - **Docker**: builds the production image, then smoke-tests it in a fresh container (health check, login, static UI) before passing
   - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
   - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
-  - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
+  - Builds the production image, smoke-tests it (health, login, UI), and only then pushes to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
 
 ### Make targets

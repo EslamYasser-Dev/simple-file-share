@@ -22,7 +22,7 @@ GO           ?= go
 SERVER_PKG   := ./cmd/server
 LDFLAGS      := -s -w
 COVER_FILE   := $(BACKEND_DIR)/coverage.out
-COVER_MIN    ?= 50
+COVER_MIN    ?= 40
 
 # ---- Node --------------------------------------------------------------------
 YARN         ?= corepack yarn

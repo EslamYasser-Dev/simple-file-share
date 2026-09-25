@@ -12,7 +12,7 @@ export const en = {
   meta: {
     title: "FileShare — self-hosted file sharing in one Go binary",
     description:
-      "Open-source file workspace: resumable uploads, LAN P2P, roles and quotas, S3 or local disk, English and Arabic. Built with Go, React, and Expo.",
+      "Open-source file workspace: resumable uploads, LAN P2P, roles and quotas, S3 or local disk, English and Arabic. Built with Go, React, and Flutter.",
   },
   nav: {
     features: "Features",
@@ -176,7 +176,7 @@ export const en = {
       {
         n: "06",
         title: "Web, mobile, static docs",
-        body: "React app inside the binary, Expo client for phones, and this site plus install guides as a static export.",
+        body: "React app inside the binary, Flutter client for phones, and this site plus install guides as a static export.",
       },
     ],
   },
@@ -275,7 +275,7 @@ export const en = {
       {
         label: "Clients",
         items: [
-          "Expo mobile app",
+          "Flutter mobile app",
           "OpenAPI + protobuf",
           "Docker single container",
           "Static marketing export",

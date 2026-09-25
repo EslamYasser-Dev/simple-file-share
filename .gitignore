@@ -42,3 +42,6 @@ data/
 .env
 .env.*
 !.env.example
+
+# Dev TLS material (never commit keys)
+certs/

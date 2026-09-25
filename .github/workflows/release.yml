@@ -39,16 +39,52 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
-      - name: Build and push
+      - name: Build image (load for smoke test)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./dockerfile
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke test image (health, login, UI)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          first="$(printf '%s\n' "$TAGS" | head -n1)"
+          docker run -d --name release-smoke -p 22010:22010 \
+            -e JWT_SECRET="$(openssl rand -hex 32)" \
+            -e ADMIN_USERNAME=admin \
+            -e ADMIN_PASSWORD=release-smoke-password-123 \
+            -e ENABLE_TLS=false \
+            "$first"
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:22010/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:22010/health >/dev/null
+          token=$(curl -sf -X POST http://127.0.0.1:22010/api/auth/token \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"release-smoke-password-123"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+          test -n "$token"
+          curl -sf -o /dev/null http://127.0.0.1:22010/
+          docker rm -f release-smoke
+          echo "smoke OK for $first"
+
+      - name: Push image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          for tag in $TAGS; do
+            docker push "$tag"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
