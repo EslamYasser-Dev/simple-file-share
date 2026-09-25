@@ -705,9 +705,7 @@ go test ./...              # unit + adapter tests
 go test -race ./...        # with the race detector (what CI runs)
 ```
 
-Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The current
-suite sits at roughly **49%** overall, with the domain policy, auth, gRPC, and
-handler packages much higher.
+Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The suite sits at roughly **47%** today, with the domain policy, auth, gRPC, and handler packages much higher.
 
 ### Frontend
 The frontend currently has no unit-test runner; CI type-checks, lints, and
