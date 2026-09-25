@@ -1,0 +1,7 @@
+[build]
+  command = "cd frontend && corepack enable && yarn install --immutable && yarn build"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  VITE_API_URL = "https://shares.up.railway.app"
