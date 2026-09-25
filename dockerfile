@@ -35,13 +35,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # =============================
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates wget su-exec
 
 COPY --from=builder /file-server /file-server
 COPY --from=web-builder /app/frontend/dist /app/dist
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-# Data directory writable by the non-root runtime user.
-RUN mkdir -p /data && chown -R nobody:nobody /data
+# Data directory writable by the non-root runtime user; the entrypoint also
+# creates and owns ROOT_DIR at boot, then drops from root to nobody.
+RUN mkdir -p /data && chown -R nobody:nobody /data && \
+    chmod +x /docker-entrypoint.sh
 
 # The server refuses ROOT_DIR == working directory, so cwd must not be /data.
 WORKDIR /app
@@ -56,9 +59,9 @@ ENV APP_ENV=production \
 
 EXPOSE 22010 50051
 
-USER nobody
-
+# Starts as root only inside the entrypoint (mkdir/chown ROOT_DIR);
+# su-exec drops the actual server process to nobody.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://127.0.0.1:22010/health || exit 1
 
-ENTRYPOINT ["/file-server"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
