@@ -164,16 +164,16 @@ func TestShouldDeliver(t *testing.T) {
 	other := events.Event{Type: events.TypeDelete, User: "alice"}
 	broadcast := events.Event{Type: events.TypeQuota, User: ""}
 
-	if !shouldDeliver(broadcast, &models.User{Username: "bob"}) {
+	if !events.ShouldDeliver(broadcast, &models.User{Username: "bob"}) {
 		t.Fatal("broadcast should always deliver")
 	}
-	if !shouldDeliver(own, &models.User{Username: "bob"}) {
+	if !events.ShouldDeliver(own, &models.User{Username: "bob"}) {
 		t.Fatal("own event should deliver")
 	}
-	if shouldDeliver(other, &models.User{Username: "bob"}) {
+	if events.ShouldDeliver(other, &models.User{Username: "bob"}) {
 		t.Fatal("other user's event should not deliver")
 	}
-	if !shouldDeliver(other, nil) {
+	if !events.ShouldDeliver(other, nil) {
 		t.Fatal("system view should receive all events")
 	}
 }

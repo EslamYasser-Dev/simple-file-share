@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v7.36.2
-// source: proto/fileshare/v1/fileshare.proto
+// source: fileshare/v1/fileshare.proto
 
 package filesharev1
 
@@ -24,6 +24,8 @@ const (
 	AuthService_Me_FullMethodName           = "/fileshare.v1.AuthService/Me"
 	AuthService_GetAuthInfo_FullMethodName  = "/fileshare.v1.AuthService/GetAuthInfo"
 	AuthService_ListUsers_FullMethodName    = "/fileshare.v1.AuthService/ListUsers"
+	AuthService_Login_FullMethodName        = "/fileshare.v1.AuthService/Login"
+	AuthService_Logout_FullMethodName       = "/fileshare.v1.AuthService/Logout"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -43,6 +45,11 @@ type AuthServiceClient interface {
 	GetAuthInfo(ctx context.Context, in *GetAuthInfoRequest, opts ...grpc.CallOption) (*AuthInfoResponse, error)
 	// ListUsers returns accounts with storage usage (admin only).
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
+	// Login exchanges credentials for a bearer access token (public).
+	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	// Logout revokes the bearer token carried in request metadata (public; an
+	// expired or missing token is a no-op so clients can always sign out).
+	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 }
 
 type authServiceClient struct {
@@ -103,6 +110,26 @@ func (c *authServiceClient) ListUsers(ctx context.Context, in *ListUsersRequest,
 	return out, nil
 }
 
+func (c *authServiceClient) Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_Login_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogoutResponse)
+	err := c.cc.Invoke(ctx, AuthService_Logout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -120,6 +147,11 @@ type AuthServiceServer interface {
 	GetAuthInfo(context.Context, *GetAuthInfoRequest) (*AuthInfoResponse, error)
 	// ListUsers returns accounts with storage usage (admin only).
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
+	// Login exchanges credentials for a bearer access token (public).
+	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	// Logout revokes the bearer token carried in request metadata (public; an
+	// expired or missing token is a no-op so clients can always sign out).
+	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -144,6 +176,12 @@ func (UnimplementedAuthServiceServer) GetAuthInfo(context.Context, *GetAuthInfoR
 }
 func (UnimplementedAuthServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListUsers not implemented")
+}
+func (UnimplementedAuthServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Login not implemented")
+}
+func (UnimplementedAuthServiceServer) Logout(context.Context, *LogoutRequest) (*LogoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Logout not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -256,6 +294,42 @@ func _AuthService_ListUsers_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_Login_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).Login(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_Login_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).Login(ctx, req.(*LoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).Logout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_Logout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).Logout(ctx, req.(*LogoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -283,9 +357,310 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ListUsers",
 			Handler:    _AuthService_ListUsers_Handler,
 		},
+		{
+			MethodName: "Login",
+			Handler:    _AuthService_Login_Handler,
+		},
+		{
+			MethodName: "Logout",
+			Handler:    _AuthService_Logout_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/fileshare/v1/fileshare.proto",
+	Metadata: "fileshare/v1/fileshare.proto",
+}
+
+const (
+	ShareService_CreateShare_FullMethodName = "/fileshare.v1.ShareService/CreateShare"
+	ShareService_ListShares_FullMethodName  = "/fileshare.v1.ShareService/ListShares"
+	ShareService_RevokeShare_FullMethodName = "/fileshare.v1.ShareService/RevokeShare"
+)
+
+// ShareServiceClient is the client API for ShareService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ShareService mirrors the HTTP share API.
+type ShareServiceClient interface {
+	CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*Share, error)
+	ListShares(ctx context.Context, in *ListSharesRequest, opts ...grpc.CallOption) (*ListSharesResponse, error)
+	RevokeShare(ctx context.Context, in *RevokeShareRequest, opts ...grpc.CallOption) (*RevokeShareResponse, error)
+}
+
+type shareServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewShareServiceClient(cc grpc.ClientConnInterface) ShareServiceClient {
+	return &shareServiceClient{cc}
+}
+
+func (c *shareServiceClient) CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*Share, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Share)
+	err := c.cc.Invoke(ctx, ShareService_CreateShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *shareServiceClient) ListShares(ctx context.Context, in *ListSharesRequest, opts ...grpc.CallOption) (*ListSharesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSharesResponse)
+	err := c.cc.Invoke(ctx, ShareService_ListShares_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *shareServiceClient) RevokeShare(ctx context.Context, in *RevokeShareRequest, opts ...grpc.CallOption) (*RevokeShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeShareResponse)
+	err := c.cc.Invoke(ctx, ShareService_RevokeShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ShareServiceServer is the server API for ShareService service.
+// All implementations must embed UnimplementedShareServiceServer
+// for forward compatibility.
+//
+// ShareService mirrors the HTTP share API.
+type ShareServiceServer interface {
+	CreateShare(context.Context, *CreateShareRequest) (*Share, error)
+	ListShares(context.Context, *ListSharesRequest) (*ListSharesResponse, error)
+	RevokeShare(context.Context, *RevokeShareRequest) (*RevokeShareResponse, error)
+	mustEmbedUnimplementedShareServiceServer()
+}
+
+// UnimplementedShareServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedShareServiceServer struct{}
+
+func (UnimplementedShareServiceServer) CreateShare(context.Context, *CreateShareRequest) (*Share, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateShare not implemented")
+}
+func (UnimplementedShareServiceServer) ListShares(context.Context, *ListSharesRequest) (*ListSharesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListShares not implemented")
+}
+func (UnimplementedShareServiceServer) RevokeShare(context.Context, *RevokeShareRequest) (*RevokeShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeShare not implemented")
+}
+func (UnimplementedShareServiceServer) mustEmbedUnimplementedShareServiceServer() {}
+func (UnimplementedShareServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeShareServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ShareServiceServer will
+// result in compilation errors.
+type UnsafeShareServiceServer interface {
+	mustEmbedUnimplementedShareServiceServer()
+}
+
+func RegisterShareServiceServer(s grpc.ServiceRegistrar, srv ShareServiceServer) {
+	// If the following call panics, it indicates UnimplementedShareServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ShareService_ServiceDesc, srv)
+}
+
+func _ShareService_CreateShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShareServiceServer).CreateShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShareService_CreateShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShareServiceServer).CreateShare(ctx, req.(*CreateShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ShareService_ListShares_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSharesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShareServiceServer).ListShares(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShareService_ListShares_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShareServiceServer).ListShares(ctx, req.(*ListSharesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ShareService_RevokeShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShareServiceServer).RevokeShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShareService_RevokeShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShareServiceServer).RevokeShare(ctx, req.(*RevokeShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ShareService_ServiceDesc is the grpc.ServiceDesc for ShareService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ShareService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "fileshare.v1.ShareService",
+	HandlerType: (*ShareServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateShare",
+			Handler:    _ShareService_CreateShare_Handler,
+		},
+		{
+			MethodName: "ListShares",
+			Handler:    _ShareService_ListShares_Handler,
+		},
+		{
+			MethodName: "RevokeShare",
+			Handler:    _ShareService_RevokeShare_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "fileshare/v1/fileshare.proto",
+}
+
+const (
+	EventsService_Subscribe_FullMethodName = "/fileshare.v1.EventsService/Subscribe"
+)
+
+// EventsServiceClient is the client API for EventsService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// EventsService streams live application events for native clients
+// (the browser keeps using HTTP Server-Sent Events).
+type EventsServiceClient interface {
+	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventMessage], error)
+}
+
+type eventsServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewEventsServiceClient(cc grpc.ClientConnInterface) EventsServiceClient {
+	return &eventsServiceClient{cc}
+}
+
+func (c *eventsServiceClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventMessage], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &EventsService_ServiceDesc.Streams[0], EventsService_Subscribe_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SubscribeRequest, EventMessage]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventsService_SubscribeClient = grpc.ServerStreamingClient[EventMessage]
+
+// EventsServiceServer is the server API for EventsService service.
+// All implementations must embed UnimplementedEventsServiceServer
+// for forward compatibility.
+//
+// EventsService streams live application events for native clients
+// (the browser keeps using HTTP Server-Sent Events).
+type EventsServiceServer interface {
+	Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[EventMessage]) error
+	mustEmbedUnimplementedEventsServiceServer()
+}
+
+// UnimplementedEventsServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedEventsServiceServer struct{}
+
+func (UnimplementedEventsServiceServer) Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[EventMessage]) error {
+	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedEventsServiceServer) mustEmbedUnimplementedEventsServiceServer() {}
+func (UnimplementedEventsServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafeEventsServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EventsServiceServer will
+// result in compilation errors.
+type UnsafeEventsServiceServer interface {
+	mustEmbedUnimplementedEventsServiceServer()
+}
+
+func RegisterEventsServiceServer(s grpc.ServiceRegistrar, srv EventsServiceServer) {
+	// If the following call panics, it indicates UnimplementedEventsServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&EventsService_ServiceDesc, srv)
+}
+
+func _EventsService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(EventsServiceServer).Subscribe(m, &grpc.GenericServerStream[SubscribeRequest, EventMessage]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventsService_SubscribeServer = grpc.ServerStreamingServer[EventMessage]
+
+// EventsService_ServiceDesc is the grpc.ServiceDesc for EventsService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var EventsService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "fileshare.v1.EventsService",
+	HandlerType: (*EventsServiceServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Subscribe",
+			Handler:       _EventsService_Subscribe_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "fileshare/v1/fileshare.proto",
 }
 
 const (
@@ -658,5 +1033,5 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/fileshare/v1/fileshare.proto",
+	Metadata: "fileshare/v1/fileshare.proto",
 }
