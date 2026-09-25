@@ -37,3 +37,8 @@ backend/coverage.out
 # Runtime file storage
 data/
 .file-share-data/
+
+# Local secrets (never commit)
+.env
+.env.*
+!.env.example
