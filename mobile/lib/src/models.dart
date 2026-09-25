@@ -127,28 +127,6 @@ class ServerEvent {
       );
 }
 
-class UploadSessionInfo {
-  const UploadSessionInfo({
-    required this.id,
-    required this.offset,
-    required this.size,
-    required this.chunkSize,
-  });
-
-  final String id;
-  final int offset;
-  final int size;
-  final int chunkSize;
-
-  factory UploadSessionInfo.fromJson(Map<String, dynamic> json) =>
-      UploadSessionInfo(
-        id: json['id'] as String? ?? '',
-        offset: (json['offset'] as num?)?.toInt() ?? 0,
-        size: (json['size'] as num?)?.toInt() ?? 0,
-        chunkSize: (json['chunkSize'] as num?)?.toInt() ?? 0,
-      );
-}
-
 class ApiResult<T> {
   const ApiResult({this.data, this.error, this.unauthorized = false});
 

@@ -10,3 +10,27 @@ String get apiBaseUrl {
   final base = raw.isEmpty ? fallback : raw;
   return base.replaceAll(RegExp(r'/+$'), '');
 }
+
+class GrpcTarget {
+  const GrpcTarget({
+    required this.host,
+    required this.port,
+    required this.secure,
+  });
+
+  final String host;
+  final int port;
+  final bool secure;
+}
+
+GrpcTarget grpcTargetFrom(String baseUrl) {
+  final uri = Uri.parse(baseUrl.replaceAll(RegExp(r'/+$'), ''));
+  final secure = uri.scheme != 'http';
+  return GrpcTarget(
+    host: uri.host,
+    port: uri.hasPort ? uri.port : (secure ? 443 : 80),
+    secure: secure,
+  );
+}
+
+GrpcTarget get grpcTarget => grpcTargetFrom(apiBaseUrl);

@@ -1,51 +1,35 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
-import 'package:dio/dio.dart';
+import 'package:grpc/grpc.dart';
 
-import '../config.dart';
+import '../grpc/fileshare/v1/fileshare.pbgrpc.dart';
 import '../models.dart';
+import 'grpc_connection.dart';
 import 'token_store.dart';
 
-(List<ServerEvent>, String) parseSseChunk(String buffer) {
-  final events = <ServerEvent>[];
-  final parts = buffer.split('\n\n');
-  final rest = parts.removeLast();
-  for (final part in parts) {
-    final lines = part.split('\n');
-    var data = '';
-    for (final line in lines) {
-      if (line.startsWith(':')) continue;
-      if (line.startsWith('data:')) {
-        data += line.substring(5).trim();
-      }
-    }
-    if (data.isEmpty) continue;
-    try {
-      final parsed = jsonDecode(data);
-      if (parsed is Map<String, dynamic> && parsed['type'] is String) {
-        events.add(ServerEvent.fromJson(parsed));
-      }
-    } catch (_) {}
-  }
-  return (events, rest);
-}
+ServerEvent serverEventFromProto(EventMessage message) => ServerEvent(
+      type: message.type,
+      path: message.path.isEmpty ? null : message.path,
+      user: message.user.isEmpty ? null : message.user,
+      at: message.at.isEmpty ? null : message.at,
+    );
 
 class EventsService {
-  EventsService({Dio? dio, TokenStore? tokens})
-      : _tokens = tokens ?? TokenStore(),
-        _dio = dio ?? Dio(BaseOptions(baseUrl: apiBaseUrl));
+  EventsService({GrpcConnection? connection, TokenStore? tokens})
+      : _conn = connection ?? GrpcConnection(),
+        _tokens = tokens ?? TokenStore();
 
-  final Dio _dio;
+  final GrpcConnection _conn;
   final TokenStore _tokens;
   final StreamController<ServerEvent> _controller =
       StreamController<ServerEvent>.broadcast();
 
   bool _running = false;
   int _retryDelay = 1000;
+  int _generation = 0;
   Timer? _retryTimer;
-  CancelToken? _cancel;
+  ResponseStream<EventMessage>? _subscription;
 
   static const int _maxRetryMs = 30000;
 
@@ -55,15 +39,19 @@ class EventsService {
     if (_running) return;
     _running = true;
     _retryDelay = 1000;
-    unawaited(_open());
+    unawaited(_open(_generation));
   }
 
   void stop() {
     _running = false;
+    _generation++;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _cancel?.cancel();
-    _cancel = null;
+    final subscription = _subscription;
+    _subscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
   }
 
   void _emit(ServerEvent event) {
@@ -71,58 +59,47 @@ class EventsService {
     _controller.add(event);
   }
 
-  void _scheduleRetry() {
-    if (!_running) return;
+  void _scheduleRetry(int generation) {
+    if (!_running || generation != _generation) return;
     _retryTimer?.cancel();
     _retryTimer = Timer(Duration(milliseconds: _retryDelay), () {
       _retryTimer = null;
-      unawaited(_open());
+      unawaited(_open(generation));
     });
     _retryDelay = min(_retryDelay * 2, _maxRetryMs);
   }
 
-  Future<void> _open() async {
-    if (!_running) return;
+  Future<void> _open(int generation) async {
+    if (!_running || generation != _generation) return;
     final token = await _tokens.get();
-    if (token == null) {
-      _scheduleRetry();
+    if (!_running || generation != _generation) return;
+    if (token == null || token.isEmpty) {
+      _scheduleRetry(generation);
       return;
     }
-    _cancel = CancelToken();
-    var buffer = '';
+    ResponseStream<EventMessage>? subscription;
     try {
-      final response = await _dio.get<ResponseBody>(
-        '/api/events',
-        options: Options(
-          responseType: ResponseType.stream,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Accept': 'text/event-stream',
-          },
-        ),
-        cancelToken: _cancel,
+      subscription = _conn.events.subscribe(
+        SubscribeRequest(),
+        options: CallOptions(metadata: {'authorization': 'Bearer $token'}),
       );
-      final body = response.data;
-      if (body == null) {
-        _scheduleRetry();
+      if (generation != _generation) {
+        unawaited(subscription.cancel());
         return;
       }
-      _retryDelay = 1000;
-      await for (final chunk
-          in body.stream.cast<List<int>>().transform(utf8.decoder)) {
-        if (!_running) break;
-        buffer += chunk;
-        final (events, rest) = parseSseChunk(buffer);
-        buffer = rest;
-        for (final event in events) {
-          _emit(event);
-        }
+      _subscription = subscription;
+      await for (final message in subscription) {
+        if (!_running || generation != _generation) break;
+        _retryDelay = 1000;
+        _emit(serverEventFromProto(message));
       }
     } catch (_) {
     } finally {
-      _cancel = null;
-      if (_running) _scheduleRetry();
+      if (subscription != null && identical(_subscription, subscription)) {
+        _subscription = null;
+      }
     }
+    _scheduleRetry(generation);
   }
 
   void dispose() {

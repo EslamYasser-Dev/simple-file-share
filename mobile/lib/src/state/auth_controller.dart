@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models.dart';
 import '../services/api_client.dart';
 import '../services/events_service.dart';
+import '../services/grpc_connection.dart';
 import '../services/token_store.dart';
 
 enum AuthStatus { loading, signedOut, signedIn }
@@ -18,10 +19,20 @@ class AuthState {
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
 
-final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+final grpcConnectionProvider = Provider<GrpcConnection>((ref) {
+  final connection = GrpcConnection();
+  ref.onDispose(connection.shutdown);
+  return connection;
+});
+
+final apiClientProvider = Provider<ApiClient>(
+  (ref) => ApiClient(connection: ref.watch(grpcConnectionProvider)),
+);
 
 final eventsServiceProvider = Provider<EventsService>((ref) {
-  final service = EventsService();
+  final service = EventsService(
+    connection: ref.watch(grpcConnectionProvider),
+  );
   ref.onDispose(service.dispose);
   return service;
 });
