@@ -43,7 +43,8 @@ COPY --from=web-builder /app/frontend/dist /app/dist
 # Data directory writable by the non-root runtime user.
 RUN mkdir -p /data && chown -R nobody:nobody /data
 
-WORKDIR /data
+# The server refuses ROOT_DIR == working directory, so cwd must not be /data.
+WORKDIR /app
 ENV APP_ENV=production \
     PORT=22010 \
     GRPC_PORT=50051 \
