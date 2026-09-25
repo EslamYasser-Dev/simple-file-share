@@ -14,7 +14,7 @@ import { GITHUB_URL } from "../../../../../lib/site";
 export const metadata: Metadata = {
   title: "النشر",
   description:
-    "انشر FileShare كحاوية شاملة، أو فصّل بين واجهة GitHub Pages وواجهة API مستضافة.",
+    "انشر FileShare كحاوية شاملة، أو فصّل بين واجهة ثابتة وواجهة API مستضافة.",
 };
 
 export default function DeployPageAr() {
@@ -23,7 +23,7 @@ export default function DeployPageAr() {
       locale="ar"
       eyebrow="البدء / النشر"
       title="النشر"
-      description="شكلان: حاوية واحدة تقدّم الواجهتين، أو واجهة ثابتة على GitHub Pages مع خادم API في مكان آخر."
+      description="شكلان: حاوية واحدة تقدّم الواجهتين، أو واجهة ثابتة على أي مضيف ثابت مع خادم API في مكان آخر."
       aside={
         <div className="panel p-5">
           <p className="eyebrow">الأشكال</p>
@@ -36,7 +36,7 @@ export default function DeployPageAr() {
             <li>
               <strong className="text-paper">مقسّم</strong>
               <br />
-              واجهة Pages + خادم API منفصل
+              واجهة ثابتة + خادم API منفصل
             </li>
           </ul>
           <div className="mt-5 space-y-2 text-sm">
@@ -86,9 +86,9 @@ export default function DeployPageAr() {
         />
       </Step>
 
-      <ProseH2>المقسّم — GitHub Pages + API</ProseH2>
+      <ProseH2>المقسّم — واجهة ثابتة + API</ProseH2>
       <P>
-        تقدّم Pages نسخة React الثابتة؛ ويعمل خادم Go على مضيف Docker. إعدادات
+        أي مضيف ثابت يقدّم نسخة React؛ ويعمل خادم Go على مضيف Docker. إعدادات
         CORS متساهلة في الخادم بالفعل.
       </P>
 
@@ -100,26 +100,15 @@ export default function DeployPageAr() {
       </Step>
 
       <Step locale="ar" n="2" title="انشر الواجهة">
-        <UL
-          items={[
-            <>
-              <strong>CI (موصى به):</strong> Settings ← Pages ← Source{" "}
-              <em>GitHub Actions</em>؛ ثم أضف متغيّر Actions{" "}
-              <code>VITE_API_URL</code> = مصدر خادم API. وخياريًا{" "}
-              <code>VITE_BASE_PATH</code>.
-            </>,
-            <>
-              <strong>سكربت:</strong>{" "}
-              <code>VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh</code>{" "}
-              — يبني، ويضيف صفحة 404 لـ SPA وملف ‎.nojekyll، ويدفع فرع{" "}
-              <code>gh-pages</code> بالقوة.
-            </>,
-          ]}
+        <CodeBlock
+          label="بناء الواجهة"
+          code={`cd frontend
+VITE_API_URL=https://api.example.com yarn build
+# ارفع frontend/dist/ إلى أي مضيف ثابت (nginx أو S3 أو Netlify …)`}
         />
         <Callout>
-          يفشل CI في الإنتاج إن فُقد <code>VITE_API_URL</code>؛ ومعاينات PR
-          تُبنى بدونه. قدّم خادم API عبر HTTPS حتى لا تُرسل بيانات Basic Auth
-          أبدًا كنص صريح.
+          ثبّت <code>VITE_API_URL</code> أثناء البناء (فارغ = نفس الأصل). قدّم
+          خادم API عبر HTTPS حتى لا تُرسل بيانات Basic Auth أبدًا كنص صريح.
         </Callout>
       </Step>
 

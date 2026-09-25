@@ -38,7 +38,7 @@ const guides = [
   {
     href: "/ar/getting-started/deploy/",
     title: "النشر",
-    body: "مضيف Docker شامل، أو تقسيم بين GitHub Pages وواجهة API منفصلة.",
+    body: "مضيف Docker شامل، أو تقسيم بين واجهة ثابتة وواجهة API منفصلة.",
     tag: "الإنتاج",
   },
 ] as const;

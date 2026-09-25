@@ -279,7 +279,7 @@ export const en = {
           "OpenAPI + protobuf",
           "Docker single container",
           "Static marketing export",
-          "GitHub Pages-ready UI",
+          "Static-host-ready UI",
         ],
       },
     ],

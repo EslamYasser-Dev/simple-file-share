@@ -41,8 +41,8 @@ Build-time variables (see `src/config/index.ts`):
 
 - `VITE_API_URL` — API base URL; empty uses the current origin.
 - `VITE_MAX_UPLOAD_MB` — client-side upload size limit in MB; `0` = unlimited.
-- `VITE_BASE_PATH` — sub-path the app is served from; defaults to `/`. GitHub
-  project pages use `/<repo>/` (set automatically by the Pages deploy).
+- `VITE_BASE_PATH` — sub-path the app is served from; defaults to `/` (set it
+  when hosting the UI under a path prefix, e.g. `/files/`).
 
 ## Project structure
 

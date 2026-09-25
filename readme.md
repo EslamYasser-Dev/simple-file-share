@@ -81,7 +81,7 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Framework**: Next.js App Router with static export (`output: "export"`)
 - **Language**: TypeScript
 - **Internationalization**: English/Arabic with EN/AR route groups and RTL
-- **Deploy**: serves as the GitHub Pages landing page (the UI is under `/app/`)
+- **Deploy**: static export (`output: "export"`) — upload `website/out/` to any static host
 
 ### Mobile
 - **Framework**: Flutter with Riverpod state management
@@ -457,10 +457,8 @@ graph LR
 │   ├── lib/src/screens/              # Login, files, shares, account screens
 │   ├── lib/src/services/             # REST client, JWT auth, SSE stream
 │   └── lib/src/state/                # Riverpod auth controller
-├── scripts/
-│   └── deploy-pages.sh               # Build + publish the landing website and app to GitHub Pages
 ├── .github/workflows/
-│   ├── ci.yml                        # CI checks + GitHub Pages deploy (prod, PR previews, gh-pages branch)
+│   ├── ci.yml                        # CI checks: backend, frontend, website, mobile, Docker
 │   └── release.yml                   # Container image release
 ├── dockerfile                        # Multi-stage build (frontend → Go → distroless-ish runtime)
 ├── docker-compose.yml
@@ -563,8 +561,8 @@ supports username/password JWT login only.
 
 Two deployment shapes are supported:
 
-- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option B/C).
-- **Split** — publish the static **landing website and UI** to **GitHub Pages** and host the Go API separately (Option A). GitHub Pages cannot run the Go backend (uploads, auth, storage), so the two must be wired together via `VITE_API_URL`.
+- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (Option A/B).
+- **Split** — serve the static UI (and optionally the landing website) from any static host and run the Go API separately, wired together via `VITE_API_URL`. A static host cannot run the Go backend (uploads, auth, storage).
 
 ### Environment variables
 
@@ -595,50 +593,7 @@ Two deployment shapes are supported:
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
-### Option A — GitHub Pages (landing + UI) + hosted API
-
-GitHub Pages serves the marketing landing website (EN/AR) at the site root and
-the file-share UI under `/app/`; the Go API still runs on a Docker host
-(Option B/C). Cross-origin requests already work because the server sends
-permissive CORS headers.
-
-**1. Deploy the API** using Option B/C below, then note its public origin
-(e.g. `https://api.example.com`).
-
-**2. Publish the site** — automatically via CI, or manually with the deploy script:
-
-- **CI (recommended):** in **Settings → Pages** set the source to
-  **GitHub Actions**, then in **Settings → Secrets and variables → Actions →
-  Variables** add `VITE_API_URL` = your API origin. The `ci.yml` workflow
-  builds the landing website and the frontend once, and on every push to
-  `master`/`main`/`enhancements`:
-  - deploys them to GitHub Pages (Actions source) — landing at the root,
-    app under `/app/`,
-  - force-pushes the same tree to the `gh-pages` branch as a legacy fallback,
-  - deploys each pull request to a Pages **preview** (same-repo PRs),
-  - and verifies the UI in the Docker image build.
-
-  Optional path overrides: `VITE_BASE_PATH` (app sub-path; defaults to
-  `/<repo>/app/` for project pages) and `WEBSITE_BASE_PATH` (landing basePath;
-  defaults to `/<repo>`). The landing's "Open app" buttons are built from
-  `https://<owner>.github.io` + `VITE_BASE_PATH`.
-
-  For a production deploy a missing `VITE_API_URL` warns in the workflow with a
-  pointer to the repository variable (previews build fine without it).
-
-- **Script:**
-  ```bash
-  VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh
-  ```
-  The script builds the landing website and the frontend, assembles them into
-  one tree (landing at the root, app under `/app/`), adds `.nojekyll`, and
-  force-pushes it to the `gh-pages` branch. Then
-  set **Settings → Pages → Source: Deploy from a branch → `gh-pages` / root**.
-
-> **Auth note:** the UI signs in with HTTP Basic Auth against the API. Serve the
-> API over HTTPS so credentials are never sent in the clear.
-
-### Option B — Any Docker host
+### Option A — Any Docker host
 
 ```bash
 # Build the image (frontend + backend)
@@ -665,7 +620,7 @@ Then open `http://localhost:22010`.
 > directory and give it to that user first:
 > `mkdir -p data && sudo chown 65534:65534 data`.
 
-### Option C — Pull the published image
+### Option B — Pull the published image
 
 Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) triggers the
 release workflow, which builds the image and publishes it to
@@ -680,7 +635,7 @@ docker run -d --name file-share -p 22010:22010 \
   ghcr.io/eslamyasser-dev/simple-file-share:latest
 ```
 
-### Option D — Local production-mode smoke test
+### Option C — Local production-mode smoke test
 
 ```bash
 mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
@@ -760,19 +715,15 @@ This repository uses GitHub Actions for continuous integration and delivery.
 
 - **CI Workflow**: `.github/workflows/ci.yml`
   - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 20% coverage floor, and an HTML coverage report artifact
-  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build (with Pages base path `/app/` + `VITE_API_URL` from repository variables), with `dist/` uploaded as an artifact
-  - **Website** (Next.js): ESLint, `tsc` type check, static export with the Pages base path and the app URL baked into the landing, with `out/` uploaded as an artifact
+  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
+  - **Website** (Next.js): ESLint, `tsc` type check, static export
   - **Docker**: builds the production image (no push) to verify the Dockerfile
-  - **GitHub Pages** (production): on pushes to `master`/`main`/`enhancements`, the landing website and the app are assembled (landing at the root, app under `/app/`) and deployed (Actions source), then force-pushed to the `gh-pages` branch as a legacy fallback
-  - **GitHub Pages** (PR preview): each pull request from the same repository deploys the landing + app to Pages with a preview environment
-  - Requires `VITE_API_URL` for the production deploy and runs on push to `master`/`main`/`enhancements` and on pull requests
+  - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
   - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
   - Builds the production image and pushes it to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
-
-- **Pages**: managed inside `ci.yml` (build → production deploy on push → per-PR preview), with `scripts/deploy-pages.sh` as a standalone manual fallback
 
 ### Make targets
 

@@ -271,7 +271,7 @@ export const ar: Dict = {
           "OpenAPI + protobuf",
           "حاوية Docker واحدة",
           "تصدير ثابت للمواصفات",
-          "واجهة جاهزة لـ GitHub Pages",
+          "واجهة جاهزة للاستضافة الثابتة",
         ],
       },
     ],

@@ -38,7 +38,7 @@ const guides = [
   {
     href: "/getting-started/deploy/",
     title: "Deploy",
-    body: "All-in-one Docker host or split GitHub Pages + API.",
+    body: "All-in-one Docker host or split static UI + API.",
     tag: "Production",
   },
 ] as const;

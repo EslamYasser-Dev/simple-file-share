@@ -11,7 +11,7 @@ BIN_DIR      := bin
 BUILD_DIR    := build
 
 # ---- Binary / version --------------------------------------------------------
-APP_NAME     := file-share
+APP_NAME     := app
 VERSION      ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 COMMIT       ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BIN_NAME     := $(BIN_DIR)/$(APP_NAME)
@@ -196,17 +196,6 @@ docker-down: ## Stop Docker Compose services
 .PHONY: docker-logs
 docker-logs: ## Tail Docker Compose logs
 	@$(COMPOSE) logs -f
-
-# ==============================================================================
-# GitHub Pages
-# ==============================================================================
-# The Pages UI is static; the Go API must be reachable at VITE_API_URL.
-#   make deploy-pages VITE_API_URL=https://api.example.com
-.PHONY: deploy-pages
-deploy-pages: ## Build the frontend and publish it to GitHub Pages
-	@echo "🌐 Deploying frontend to GitHub Pages..."
-	@bash scripts/deploy-pages.sh
-	@echo "✅ Pages deploy complete"
 
 # ==============================================================================
 # Housekeeping

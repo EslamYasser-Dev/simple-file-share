@@ -14,7 +14,7 @@ import { GITHUB_URL } from "../../../../lib/site";
 export const metadata: Metadata = {
   title: "Deploy",
   description:
-    "Deploy FileShare as an all-in-one container or split GitHub Pages UI + hosted API.",
+    "Deploy FileShare as an all-in-one container or split static UI + hosted API.",
 };
 
 export default function DeployPage() {
@@ -22,7 +22,7 @@ export default function DeployPage() {
     <DocsShell
       eyebrow="Getting started / Deploy"
       title="Deploy"
-      description="Two shapes: one container that serves UI + API, or static UI on GitHub Pages with the API elsewhere."
+      description="Two shapes: one container that serves UI + API, or static UI on any static host with the API elsewhere."
       aside={
         <div className="panel p-5">
           <p className="eyebrow">Shapes</p>
@@ -35,7 +35,7 @@ export default function DeployPage() {
             <li>
               <strong className="text-paper">Split</strong>
               <br />
-              Pages UI + separate API
+              Static UI + separate API
             </li>
           </ul>
           <div className="mt-5 space-y-2 text-sm">
@@ -85,10 +85,10 @@ export default function DeployPage() {
         />
       </Step>
 
-      <ProseH2>Split — GitHub Pages + API</ProseH2>
+      <ProseH2>Split — static UI + API</ProseH2>
       <P>
-        Pages serves the static React build; the Go API runs on a Docker host.
-        CORS is already permissive on the server.
+        Any static host serves the React build; the Go API runs on a Docker
+        host. CORS is already permissive on the server.
       </P>
 
       <Step n="1" title="Deploy the API">
@@ -96,26 +96,16 @@ export default function DeployPage() {
       </Step>
 
       <Step n="2" title="Publish the UI">
-        <UL
-          items={[
-            <>
-              <strong>CI (recommended):</strong> Settings → Pages → Source{" "}
-              <em>GitHub Actions</em>; add Actions variable{" "}
-              <code>VITE_API_URL</code> = API origin. Optional{" "}
-              <code>VITE_BASE_PATH</code>.
-            </>,
-            <>
-              <strong>Script:</strong>{" "}
-              <code>VITE_API_URL=https://api.example.com ./scripts/deploy-pages.sh</code>{" "}
-              — builds, adds SPA 404 + .nojekyll, force-pushes{" "}
-              <code>gh-pages</code>.
-            </>,
-          ]}
+        <CodeBlock
+          label="build the UI"
+          code={`cd frontend
+VITE_API_URL=https://api.example.com yarn build
+# upload frontend/dist/ to any static host (nginx, S3, Netlify, …)`}
         />
         <Callout>
-          Production CI fails if <code>VITE_API_URL</code> is missing; PR
-          previews build without it. Serve the API over HTTPS so Basic Auth
-          credentials are never sent in the clear.
+          Bake <code>VITE_API_URL</code> into the build (empty = same-origin).
+          Serve the API over HTTPS so Basic Auth credentials are never sent in
+          the clear.
         </Callout>
       </Step>
 

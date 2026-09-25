@@ -95,7 +95,7 @@ npx serve out
 yarn start
 ```
 
-- **GitHub Pages / any static host:** upload `out/` (or wire `scripts/deploy-pages.sh` style deploy).
+- **Any static host:** upload `out/`.
 - Trailing slashes are enabled (`trailingSlash: true`) for static hosts that expect directory URLs.
 - Images are not optimized (`images.unoptimized: true`) so the export works without an image optimizer.
 
