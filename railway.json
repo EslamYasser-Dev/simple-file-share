@@ -8,10 +8,6 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10,
-    "env": {
-      "CORS_ORIGINS": "https://simple-file-share-eight.vercel.app,https://shares.vercel.app",
-      "ENABLE_GRPC_TLS": "true"
-    }
+    "restartPolicyMaxRetries": 10
   }
 }

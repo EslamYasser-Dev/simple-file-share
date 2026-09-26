@@ -55,7 +55,9 @@ ENV APP_ENV=production \
     STATIC_DIR=/app/dist \
     ENABLE_TLS=false \
     ENABLE_AUTH=true \
-    ENABLE_GRPC=true
+    ENABLE_GRPC=true \
+    ENABLE_GRPC_TLS=true \
+    CORS_ORIGINS=https://simple-file-share-eight.vercel.app,https://shares-iota.vercel.app
 
 EXPOSE 22010 50051
 
