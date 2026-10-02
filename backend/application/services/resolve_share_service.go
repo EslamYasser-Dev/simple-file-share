@@ -12,24 +12,30 @@ import (
 
 // ResolveShareService turns a public share token into a streamable download. It
 // is the only service that serves content without an authenticated user, so it
-// must validate both the token's existence and its validity window.
+// must validate the token's existence, validity window, password, and
+// download budget before anything is streamed.
 type ResolveShareService struct {
 	shareRepo ports.ShareRepository
 	scoper    ports.PathScoper
 	downloads *DownloadService
+	hasher    ports.PasswordHasher
 	now       func() time.Time
 }
 
-func NewResolveShareService(shareRepo ports.ShareRepository, scoper ports.PathScoper, downloads *DownloadService) *ResolveShareService {
+func NewResolveShareService(shareRepo ports.ShareRepository, scoper ports.PathScoper, downloads *DownloadService, hasher ports.PasswordHasher) *ResolveShareService {
 	return &ResolveShareService{
 		shareRepo: shareRepo,
 		scoper:    scoper,
 		downloads: downloads,
+		hasher:    hasher,
 		now:       time.Now,
 	}
 }
 
-func (s *ResolveShareService) Execute(token string) (*models.Download, error) {
+// Execute resolves token to a download. password is the presented link
+// password (from X-Share-Password or the password query parameter); links
+// without a password ignore it.
+func (s *ResolveShareService) Execute(token, password string) (*models.Download, error) {
 	// Reject structurally invalid tokens before anything touches storage, so
 	// crafted garbage can never cost a repository or filesystem probe.
 	if _, err := valueobjects.NewShareToken(token); err != nil {
@@ -48,6 +54,15 @@ func (s *ResolveShareService) Execute(token string) (*models.Download, error) {
 		return nil, &domainerrors.ShareExpiredError{Token: token}
 	}
 
+	if share.PasswordProtected() {
+		if password == "" {
+			return nil, &domainerrors.SharePasswordError{Token: token, Missing: true}
+		}
+		if !s.hasher.Verify(password, share.PasswordHash) {
+			return nil, &domainerrors.SharePasswordError{Token: token}
+		}
+	}
+
 	// Replay the owner's read scope so the stored virtual path resolves to the
 	// same physical location it pointed at when the link was created. A share
 	// created by the system view (no owner) stays unscoped. The explicit scope
@@ -61,5 +76,22 @@ func (s *ResolveShareService) Execute(token string) (*models.Download, error) {
 	}
 
 	// If the underlying item was deleted, this returns a 404.
-	return s.downloads.Execute(owner, share.Path)
+	download, err := s.downloads.Execute(owner, share.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Charge the budget only once the file is known to be servable, and
+	// atomically so concurrent requests cannot overshoot the limit.
+	if share.Limited() {
+		if err := s.shareRepo.ConsumeDownload(token); err != nil {
+			if errors.Is(err, domainerrors.ErrShareLimitReached) {
+				_ = download.Stream.Close()
+				return nil, err
+			}
+			_ = download.Stream.Close()
+			return nil, err
+		}
+	}
+	return download, nil
 }

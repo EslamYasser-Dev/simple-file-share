@@ -89,6 +89,95 @@ func TestEnvConfigProvider(t *testing.T) {
 	}
 }
 
+func TestAuditConfigDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("ROOT_DIR", t.TempDir())
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableAuditLog() {
+		t.Fatal("audit log must default to enabled")
+	}
+	if cfg.GetAuditMaxBytes() != 8<<20 {
+		t.Fatalf("audit max bytes default = %d, want %d", cfg.GetAuditMaxBytes(), 8<<20)
+	}
+	if cfg.GetAuditKeep() != 3 {
+		t.Fatalf("audit keep default = %d, want 3", cfg.GetAuditKeep())
+	}
+
+	t.Setenv("AUDIT_LOG", "false")
+	t.Setenv("AUDIT_MAX_BYTES", "1MB")
+	t.Setenv("AUDIT_KEEP", "5")
+	cfg, err = NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableAuditLog() {
+		t.Fatal("AUDIT_LOG=false must disable the audit trail")
+	}
+	if cfg.GetAuditMaxBytes() != 1<<20 {
+		t.Fatalf("AUDIT_MAX_BYTES = %d, want %d", cfg.GetAuditMaxBytes(), 1<<20)
+	}
+	if cfg.GetAuditKeep() != 5 {
+		t.Fatalf("AUDIT_KEEP = %d, want 5", cfg.GetAuditKeep())
+	}
+
+	// Out-of-range keeps clamp instead of failing boot.
+	t.Setenv("AUDIT_KEEP", "not-a-number")
+	cfg, err = NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GetAuditKeep() != 3 {
+		t.Fatalf("bad AUDIT_KEEP must fall back to 3, got %d", cfg.GetAuditKeep())
+	}
+}
+
+func TestTwoFactorConfigDefault(t *testing.T) {
+	t.Setenv("ROOT_DIR", t.TempDir())
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableTwoFactor() {
+		t.Fatal("ENABLE_2FA must default to enabled (enrollment is opt-in per account)")
+	}
+	t.Setenv("ENABLE_2FA", "false")
+	cfg, err = NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableTwoFactor() {
+		t.Fatal("ENABLE_2FA=false must disable enrollment routes")
+	}
+}
+
+func TestAPIKeysConfigDefault(t *testing.T) {
+	t.Setenv("ROOT_DIR", t.TempDir())
+	cfg, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableAPIKeys() {
+		t.Fatal("ENABLE_API_KEYS must default to enabled")
+	}
+	dev, err := NewDevConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dev.EnableAPIKeys() {
+		t.Fatal("dev provider must also default API keys to enabled")
+	}
+	t.Setenv("ENABLE_API_KEYS", "false")
+	cfg, err = NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableAPIKeys() {
+		t.Fatal("ENABLE_API_KEYS=false must disable the endpoints and key auth")
+	}
+}
+
 func TestResolveStorageBackend(t *testing.T) {
 	cases := map[string]string{
 		"":           "local",
@@ -209,5 +298,52 @@ func TestDevConfigGRPCTLS(t *testing.T) {
 	t.Setenv("ENABLE_GRPC_TLS", "true")
 	if !cfg.EnableGRPCTLS() {
 		t.Fatal("expected dev provider to read ENABLE_GRPC_TLS live")
+	}
+}
+
+func TestWebhookConfigDefaultsAndParsing(t *testing.T) {
+	t.Setenv("WEBHOOK_URLS", "")
+	t.Setenv("WEBHOOK_SECRET", "")
+	if urls := resolveWebhookURLs(); urls != nil {
+		t.Errorf("default urls = %v, want nil (webhooks off)", urls)
+	}
+	if s := resolveWebhookSecret(); s != "" {
+		t.Errorf("default secret = %q, want empty", s)
+	}
+
+	t.Setenv("WEBHOOK_URLS", " https://a.example/hook , http://b.example/hook , ftp://bad/x , not-a-url , ")
+	got := resolveWebhookURLs()
+	want := []string{"https://a.example/hook", "http://b.example/hook"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("urls = %v, want %v (http(s) with host only)", got, want)
+	}
+
+	t.Setenv("WEBHOOK_SECRET", "  s3cr3t  ")
+	if s := resolveWebhookSecret(); s != "s3cr3t" {
+		t.Errorf("secret = %q, want trimmed value", s)
+	}
+}
+
+func TestProvidersExposeWebhookConfig(t *testing.T) {
+	t.Setenv("WEBHOOK_URLS", "https://hooks.example/x")
+	t.Setenv("WEBHOOK_SECRET", "k1")
+
+	env, err := NewEnvConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env.GetWebhookURLs()) != 1 || env.GetWebhookURLs()[0] != "https://hooks.example/x" {
+		t.Errorf("env urls = %v", env.GetWebhookURLs())
+	}
+	if env.GetWebhookSecret() != "k1" {
+		t.Errorf("env secret = %q", env.GetWebhookSecret())
+	}
+
+	dev, err := NewDevConfigProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dev.GetWebhookURLs()) != 1 || dev.GetWebhookSecret() != "k1" {
+		t.Errorf("dev = %v / %q", dev.GetWebhookURLs(), dev.GetWebhookSecret())
 	}
 }

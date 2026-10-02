@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
@@ -22,19 +21,18 @@ func (h *SearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := r.URL.Query().Get("q")
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil {
-			limit = parsed
-		}
+	page, err := parsePaging(r)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid cursor")
+		return
 	}
 
-	results, err := h.searchService.Execute(currentUser(r), query, limit)
+	query := r.URL.Query().Get("q")
+	results, err := h.searchService.Execute(currentUser(r), query, page.fetchSize())
 	if err != nil {
 		respondWithError(w, err)
 		return
 	}
 
-	respondJSON(w, http.StatusOK, dto.FromFileInfos(results))
+	respondJSON(w, http.StatusOK, window(page, dto.FromFileInfos(results)))
 }

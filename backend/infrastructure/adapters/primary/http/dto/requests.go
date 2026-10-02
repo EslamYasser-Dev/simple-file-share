@@ -47,6 +47,10 @@ type RestoreVersionRequest struct {
 type TokenRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// OTP is the second factor for accounts with TOTP enabled: a 6-digit
+	// authenticator code or an unused backup code. Omitting it for an
+	// enrolled account yields 401 {"error":"totp_required"}.
+	OTP string `json:"otp,omitempty"`
 }
 
 // RefreshRequest is the body of POST /api/auth/refresh and /api/auth/revoke

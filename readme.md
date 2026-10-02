@@ -5,6 +5,11 @@
 
 A high-performance, secure file sharing application built with Go and React, structured as a hexagonal (ports & adapters) application.
 
+> **Repository split**: this repo is the **backend only** (Go API + gRPC + Docker image). The clients live in sibling repositories, each with its own CI/CD:
+> - `frontend` — React + Vite SPA → Vercel
+> - `landing` — Next.js marketing site → Vercel
+> - `mobile` — Flutter app → analyze/test CI
+
 ## 🌟 Overview
 
 Simple File Share is a modern web application that provides secure file management capabilities with a clean, intuitive interface. Its backend follows hexagonal architecture: a framework-free domain and application core surrounded by swappable primary adapters (HTTP, gRPC) and secondary adapters (filesystem, auth, config, logging), so storage backends and transports can be replaced independently.
@@ -81,7 +86,7 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Framework**: Next.js App Router with static export (`output: "export"`)
 - **Language**: TypeScript
 - **Internationalization**: English/Arabic with EN/AR route groups and RTL
-- **Deploy**: static export (`output: "export"`) — upload `website/out/` to any static host
+- **Deploy**: static export (`output: "export"`) — the `landing` repo's workflow uploads `out/` (Vercel)
 
 ### Mobile
 - **Framework**: Flutter with Riverpod state management
@@ -96,16 +101,20 @@ Simple File Share is a modern web application that provides secure file manageme
 
 #### 1. List Directory
 ```
-GET /api/files?path=<dir>
+GET /api/files?path=<dir>&limit=<n>&cursor=<token>
 ```
 - **Parameters**:
   - `path` (query, optional): Directory path to list (defaults to the user's root)
+  - `limit` (query, optional): Page size — default 50, clamped to 1..500
+  - `cursor` (query, optional): Opaque `nextCursor` from the previous page
 - **Responses**:
-  - `200`: JSON array of `{ name, path, size, isDir, modified, mimeType }`
+  - `200`: Page envelope `{ "items": [ { name, path, size, isDir, modified, mimeType } ], "nextCursor": "…" }` — `nextCursor` is present exactly when more items remain; pass it back verbatim (it is an opaque base64 offset, do not construct one). A malformed cursor is `400 invalid cursor`.
+  - `400`: Invalid path or malformed cursor
   - `401`: Authentication required
   - `403`: Forbidden (path traversal or another user's private space)
   - `404`: Path not found
   - `409`: Path is not a directory
+  > The same `{"items":[...],"nextCursor":"…"}` envelope (with the same `limit`/`cursor` rules) is used by `GET /api/files/search`, `GET /api/shares`, `GET /api/admin/users`, and `GET /api/admin/roles`. This is a breaking change from the previous bare-array responses.
 
 #### 2. Upload Files
 ```
@@ -127,12 +136,17 @@ Content-Type: multipart/form-data
 GET /api/files/download?path=<path>
 ```
 - Streams the file, or builds a ZIP archive on the fly when `path` points at a directory. The choice is based on the target's actual type, so a regular file named `*.zip` downloads as-is.
+- **Revalidation**: file responses carry a strong `ETag` (name + size + mtime) and `Last-Modified`; send `If-None-Match` to get a bodyless `304` instead of the file.
+- **Byte ranges**: `Range: bytes=…` on a regular file answers `206` with `Content-Range` (`416` when unsatisfiable), and `If-Range` falls back to the full body when the validator is stale. ZIP archives are synthetic streams and are always sent whole.
 - **Responses**:
   - `200`: File or ZIP stream
+  - `206`: Partial content (range request on a regular file)
+  - `304`: Not modified (validator matched)
   - `400`: Invalid path
   - `401`: Authentication required
   - `403`: Forbidden
   - `404`: Path not found
+  - `416`: Requested range not satisfiable
 
 #### 4. View File Inline
 ```
@@ -141,8 +155,10 @@ GET /api/files/view?path=<file>
 - Streams a file with `Content-Disposition: inline` so the browser renders it.
 - Only safe types (PDF, images, audio/video, plain text/markdown) are inline;
   anything else is forced to download to prevent script injection.
+- Sends the same `ETag`/`Last-Modified` validators as the download endpoint, so `If-None-Match` revalidates to `304`.
 - **Responses**:
   - `200`: File contents
+  - `304`: Not modified (validator matched)
   - `400`: Invalid path
   - `401`: Authentication required
   - `404`: Path not found
@@ -159,12 +175,13 @@ GET /api/files/info?path=<path>
 
 #### 6. Search Files
 ```
-GET /api/files/search?q=<query>&limit=<n>
+GET /api/files/search?q=<query>&limit=<n>&cursor=<token>
 ```
 - Recursively matches names/paths and full-text content within the caller's visible scope (pure-Go inverted index over text file contents; binaries skipped).
+- `limit`/`cursor` follow the shared page envelope described in §1 (default 50 per page).
 - **Responses**:
-  - `200`: JSON array of matching file entries
-  - `400`: Missing query
+  - `200`: Page envelope `{ "items": [matching file entries], "nextCursor": "…" }`
+  - `400`: Missing query or malformed cursor
   - `401`: Authentication required
 
 #### 6b. Live Events (SSE)
@@ -221,17 +238,64 @@ Content-Type: application/json
   - `403`: Forbidden (read-only shared folder)
   - `404`: Path not found
 
+#### 9b. Share Links (public, with policies)
+```
+POST /api/shares
+Content-Type: application/json
+GET  /api/shares?limit=<n>&cursor=<token>   # list caller's links (page envelope, §1)
+DELETE /api/shares                    # body: { "token": "..." }
+GET  /api/share/{token}               # public fetch, no auth
+```
+- **Create body**: `{ "path": "report.pdf", "expiresInSeconds": 3600, "password": "open-sesame", "maxDownloads": 5 }`
+  - `expiresInSeconds`: `0`/absent = never expires.
+  - `password` (max 256 chars): readers must present it; only a PBKDF2 hash is stored and the API never echoes it (`passwordProtected: true` instead).
+  - `maxDownloads`: `0`/absent = unlimited; otherwise an atomic budget decremented per successful serve.
+- **Reading a protected link**: send the password in the `X-Share-Password` header or the `password` query parameter. The access log records the path only, never the query string.
+- **Responses** (public fetch):
+  - `200`: File stream (same ETag/Range semantics as §3)
+  - `401`: `{"error":"share_password_required"}` or `{"error":"share_password_invalid"}`
+  - `404`: Unknown, revoked, or deleted target
+  - `410`: Expired link, or `{"error":"share_limit_reached"}` once the budget is spent
+- **Create responses**:
+  - `201`: Link object with `token`, `passwordProtected`, `maxDownloads`, `downloads`
+  - `400`: Validation error (negative `maxDownloads`, oversized password)
+- gRPC `CreateShare` keeps its expiry-only contract (protobuf has no password/limit fields); passworded/limited links created over HTTP answer `FailedPrecondition`/`ResourceExhausted` over gRPC.
+- Every create/revoke lands in the audit trail (`share.create` with `password,limit` detail flags, `share.revoke`).
+
 #### 10. Health Check
 ```
 GET /health
 ```
+- Liveness: process is up. Used by container health checks and CI smoke tests.
 - **Responses**:
   - `200`: Service is healthy
   ```json
   {
-    "status": "healthy"
+    "status": "ok",
+    "uptime": "1h0m0s"
   }
   ```
+
+#### 10b. Readiness
+```
+GET /health/ready
+```
+- Readiness: dependencies are actually usable (storage root writable, metadata index rebuilt). Every check is reported; any failure yields `503` so orchestrators keep the instance out of rotation.
+- **Responses**:
+  - `200`:
+  ```json
+  { "status": "ready", "checks": { "storage": "ok", "index": "ok" } }
+  ```
+  - `503`: `{"status":"unavailable","checks":{"storage":"error: ..." ,"index":"ok"}}`
+
+#### 10c. Metrics (Prometheus)
+```
+GET /metrics
+```
+- Prometheus text exposition (`fileshare_http_*`, `fileshare_grpc_*`, `fileshare_event_streams`, `fileshare_index_files`, …). Enabled by `ENABLE_METRICS` (default on); route-labelled so cardinality stays bounded (patterns, never raw paths — share tokens never appear in labels).
+- **Access** (checked in order): `METRICS_TOKEN` bearer (`Authorization: Bearer <token>`, constant-time compare) → when auth is disabled, open (local/system view) → authenticated admin. Anonymous callers get `401`, authenticated non-admins `403`.
+- Every response also carries an `X-Request-Id` header (echoed when a well-formed one is supplied, generated otherwise) and the access log lines include `request_id` + `duration_ms` for trace correlation.
+- **Profiling**: `ENABLE_PPROF=true` serves `net/http/pprof` on `127.0.0.1:6060` only — never on the public port.
 
 #### 11. Register Account
 ```
@@ -263,6 +327,53 @@ GET /api/auth/me
   - `200`: `{ "username": "alice", "role": "member", "isAdmin": false, "enabled": true, "createdAt": "..." }`
   - `401`: Authentication required
 
+#### 13b. Sessions
+```
+GET    /api/auth/sessions              # list my active sessions
+DELETE /api/auth/sessions/{jti}        # revoke one of my sessions
+```
+- Every minted token (login, refresh, OAuth, gRPC) is tracked in `.file-share/sessions.json` with issue/expiry, client IP and user agent (50 newest per account).
+- Responses use the object pagination shape: `{ "items": [{ "jti", "issuedAt", "expiresAt", "remote", "userAgent", "current" }] }`.
+- Revoking a session deny-lists its token immediately; `current: true` marks the session of the presented token.
+- **Responses**:
+  - `200`: session list / `{ "status": "revoked" }`
+  - `401` / `403` / `404`: unauthenticated, someone else's session id, unknown id
+
+#### 13c. Two-factor authentication (TOTP)
+```
+POST /api/auth/totp/enroll        # start enrollment → { secret, otpauthUri }
+POST /api/auth/totp/verify        # confirm a code → { backupCodes: [...] }
+POST /api/auth/totp/disable       # turn off (requires a current code or backup code)
+```
+- Opt-in per account (RFC 6238, SHA-1, 6 digits, ±1 period window). Enrollment starts *pending*: a fresh secret is stored but login is not challenged until `verify` confirms a real code.
+- On confirm the server returns **10 single-use backup codes** (`xxxx-xxxx`); only PBKDF2 hashes are stored.
+- Once enabled, `POST /api/auth/token` without `otp` answers `401 {"error":"totp_required"}` — resend with `{"username","password","otp"}`. Basic auth has no OTP channel, so enrolled accounts get the same challenge (complete login via the token endpoint). OAuth logins bypass TOTP (the identity provider is the authenticator); gRPC logins on enrolled accounts return `FAILED_PRECONDITION`.
+- Backup codes count as valid `otp` values and are consumed on use.
+- Administrators can clear a locked-out account via `POST /api/admin/users/{username}/totp/reset`.
+- Routes return `404` when `ENABLE_2FA=false`.
+- **Responses**:
+  - `200`: enrollment material / backup codes / `{ "status": "disabled" }`
+  - `400`: invalid or expired code | `401`: `totp_required` | `409`: already enrolled
+
+#### 13d. API keys
+```
+GET    /api/auth/api-keys          # list my keys (metadata only)
+POST   /api/auth/api-keys          # mint: {"name","scope","expiresIn"} → 201 {"key": "sfs_…"}
+DELETE /api/auth/api-keys/{id}     # revoke one of my keys
+```
+- Long-lived credentials for scripts and CI. The full key is `sfs_<16-hex-id>_<32-char secret>` and is shown **once** at mint time — only a PBKDF2 hash is stored (the file alone does not yield usable keys).
+- Present it as `Authorization: Bearer sfs_…`. The request runs as the key's owner, narrowed by the key's scope:
+  - `read` (default): `GET`/`HEAD`/`OPTIONS`
+  - `write`: + mutating methods outside `/api/admin`
+  - `admin`: + `/api/admin/*` (role permissions are still enforced, so scope can only *reduce* what the owner may do)
+- Keys can verify identity at `GET /api/auth/me` but can never reach password, session, TOTP, or key-management endpoints — a stolen key cannot escalate to account control.
+- Optional `expiresIn` (seconds; `0`/absent = never). Last use is recorded at most every 5 minutes. Revocation takes effect immediately.
+- Accepting and minting are gated by `ENABLE_API_KEYS` (default on; off hides the routes and rejects every existing key).
+- **Responses**:
+  - `200`: `{ "items": [...] }` / `{ "status": "revoked" }`
+  - `201`: `{ "key", "id", "name", "scope", "prefix" }`
+  - `400`: invalid name/scope/expiresIn | `401`: unknown/expired/revoked key | `403`: insufficient scope, blocked endpoint, or unauthenticated | `404`: unknown key id
+
 #### 14. User management (admin / RBAC)
 ```
 GET    /api/admin/users                         # list (users.read)
@@ -278,11 +389,15 @@ DELETE /api/admin/roles/{name}                  # delete unused custom role (rol
 GET    /api/admin/analytics/overview            # usage rollup (users.read; ?days=1..365)
 GET    /api/admin/analytics/timeline            # daily activity buckets (users.read)
 GET    /api/admin/analytics/top-files           # most-touched paths (users.read; ?limit=)
+GET    /api/admin/audit                         # security audit trail (users.read; ?action=&actor=&limit=&cursor=)
+POST   /api/admin/users/{username}/totp/reset   # clear TOTP for a locked-out account (users.update)
 ```
 - Built-in roles: `admin` (all permissions), `member` (no elevated permissions).
+- `GET /api/admin/users` and `GET /api/admin/roles` return the shared page envelope (`?limit=&cursor=`, see §1).
 - Custom roles store permission grants in `.file-share/roles.json`.
 - Disable, rename, role change, and password reset revoke outstanding sessions.
 - Analytics events are appended PII-free to `.file-share/events.jsonl` (no IPs or credentials).
+- **Audit trail**: `.file-share/audit.jsonl` records `login.ok`/`login.fail`, registrations, admin user/role/quota/password changes, `totp.enroll`/`totp.confirm`/`totp.disable`/`totp.admin_reset`, `apikey.create`/`apikey.revoke`, share create/revoke, and self-service password changes — actor, remote IP, target, and a short detail, never secrets. The query API returns `{"items":[...],"nextCursor":"..."}` (newest first) and rotates on `AUDIT_MAX_BYTES`.
 - **Responses**:
   - `200` / `201`: account or role JSON (`role`, `enabled`, `isAdmin`, usage)
   - `400` / `403` / `404` / `409`: validation, forbidden, not found, conflict
@@ -294,6 +409,14 @@ GET /swagger.yaml  # OpenAPI 3.0 spec
 ```
 - **Responses**:
   - `200`: Swagger UI interface or the raw OpenAPI document
+
+### Webhooks (outgoing)
+
+Set `WEBHOOK_URLS` (comma-separated `http(s)` endpoints) to receive signed copies of every application event — `upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `restore`, `quota`, `download`, `login` — without polling the SSE stream.
+
+- **Delivery**: `POST` with a JSON body matching the SSE event shape (`{type, path, user, bytes, at}`), plus headers `X-Webhook-Event: <type>` and `X-Webhook-Signature: sha256=<hex HMAC-SHA256 of the raw body>` when `WEBHOOK_SECRET` is set (verify over the exact bytes received).
+- **Semantics**: best-effort and asynchronous — a slow or failing receiver is logged (`webhook delivery failed` / `webhook rejected`) and the event dropped after a 5s timeout; requests that publish events never wait on webhooks, and there are no retries. Four workers with a 64-slot queue bound the fan-out; overflow drops loudly.
+- **Disabled by default**: with no `WEBHOOK_URLS` the server starts no dispatcher at all.
 
 ### gRPC API (mobile)
 
@@ -454,19 +577,16 @@ graph LR
 │       └── adapters/
 │           ├── primary/              # Driving adapters: http/, grpc/, authctx/
 │           └── secondary/            # Driven adapters: fs/, auth/, config/, tls/, logging/, memory/
-├── frontend/                         # React + TypeScript + Vite SPA (see frontend/README.md)
-├── website/                          # Next.js marketing landing site (EN/AR, static export)
-├── mobile/                           # Flutter app (Riverpod, Dart)
-│   ├── lib/src/screens/              # Login, files, shares, account screens
-│   ├── lib/src/services/             # gRPC client, JWT auth, event stream
-│   └── lib/src/state/                # Riverpod auth controller
 ├── .github/workflows/
-│   ├── ci.yml                        # CI checks: backend, frontend, website, mobile, Docker
-│   └── release.yml                   # Container image release
-├── dockerfile                        # Multi-stage build (frontend → Go → distroless-ish runtime)
+│   ├── ci.yml                        # CI checks: Go backend + Docker image smoke test
+│   └── release.yml                   # Image release (GHCR) + Railway deploy
+├── dockerfile                        # Multi-stage build (Go → Alpine runtime, API only)
 ├── docker-compose.yml
-└── Makefile                          # Dev targets: run (backend), dev (frontend + backend)
+└── Makefile                          # Dev targets: run, test, coverage, containers
 ```
+
+> The `frontend/`, `landing/` (website), and `mobile/` directories moved to
+> their own repositories; clone those separately for client work.
 
 ## 🚀 Getting Started
 
@@ -502,30 +622,24 @@ graph LR
 
    If `ROOT_DIR` is unset in development the server uses a dedicated
    `.file-share-data/` directory next to the working directory. It never falls
-   back to the working directory, `frontend/`, or the home directory, and it
-   rejects unsafe paths at startup.
+   back to the working directory, the source checkout, or the home directory,
+   and it rejects unsafe paths at startup.
 
 4. **Run the server**
    ```bash
    go run cmd/server/main.go
    ```
 
-### Frontend Setup
+### Frontend / Landing / Mobile setup
 
-1. **Navigate to frontend directory**
-   ```bash
-   cd ../frontend
-   ```
+The clients are separate repositories (`frontend`, `landing`, `mobile`) — each
+has its own README and CI. From a sibling checkout:
 
-2. **Install dependencies**
-   ```bash
-   yarn install
-   ```
-
-3. **Start development server**
-   ```bash
-   yarn dev
-   ```
+```bash
+cd ../frontend && yarn install && yarn dev   # Vite dev server
+cd ../landing  && yarn install && yarn dev   # Next.js on :3001
+cd ../mobile   && flutter pub get && flutter run
+```
 
 ### Docker Setup
 
@@ -548,12 +662,14 @@ graph LR
 
 ### Mobile app (Flutter)
 
+Development moved to the sibling `mobile` repository:
+
 ```bash
-cd mobile
+cd ../mobile
 flutter pub get
 # Run against your API (defaults: Android emulator 10.0.2.2:3000, iOS/localhost:3000)
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
-# static analysis + unit tests
+# static analysis + unit tests (what its CI runs)
 flutter analyze && flutter test
 ```
 
@@ -564,8 +680,8 @@ supports username/password JWT login only.
 
 Two deployment shapes are supported:
 
-- **All-in-one** — a single self-contained Docker image serves both the React frontend and the Go API, so any Docker-capable host (Railway, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (fastest: Railway below, then Option A/B).
-- **Split** — serve the static UI from any static host (Netlify below) and run the Go API separately, wired together via `VITE_API_URL`. A static host cannot run the Go backend (uploads, auth, storage).
+- **API container** — the Docker image from this repository is **backend-only**: it runs the Go API (REST + gRPC) and nothing else. Any Docker-capable host (Railway, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (fastest: Railway below, then Option A/B).
+- **UI on a static host** — the React SPA (`frontend` repo) and the landing site (`landing` repo) deploy to Vercel; the browser reaches the API through the `/api/*` rewrite to the Railway origin. A static host cannot run the Go backend (uploads, auth, storage).
 
 ### Environment variables
 
@@ -574,7 +690,7 @@ Two deployment shapes are supported:
 | `APP_ENV` | `development` | `production` enables auth; `ENABLE_AUTH`/`ENABLE_TLS` also gate features |
 | `PORT` | `22010` (dev `3000`) | HTTP listen port |
 | `ROOT_DIR` / `FILE_SHARE_ROOT` | `.file-share-data` (dev) / `/data` (prod) | Dedicated storage directory owned by the server. Created with owner-only permissions (`0700`); unsafe values (filesystem root, working directory, home, source tree, or symlink) are rejected at startup |
-| `STATIC_DIR` | `frontend/dist` | Directory containing the built React app (index.html + assets) |
+| `STATIC_DIR` | `""` (off) | Optional directory of a prebuilt SPA (index.html + assets) to serve from the same origin. Unset in the split deploy — the UI lives on Vercel — so the server serves only `/api/*`, `/health`, and the swagger fallback |
 | `ADMIN_USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Bootstrap admin username, seeded only when no accounts exist |
 | `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password. In production the server refuses to first-boot seed a known default value (`changeme`, `admin`, …) |
 | `JWT_SECRET` | `change-me-in-production` (dev only) | HMAC key for access tokens. **Required in production**: must be a random value of at least 32 characters (e.g. `openssl rand -hex 32`), otherwise the server refuses to start |
@@ -585,6 +701,17 @@ Two deployment shapes are supported:
 | `ENABLE_GRPC` | `true` | Toggle the gRPC server for mobile clients |
 | `ENABLE_GRPC_TLS` | follows `ENABLE_TLS` | Toggle TLS on the gRPC listener independently of HTTP (for edge-terminated + TCP-proxied deployments) |
 | `GRPC_PORT` | `50051` | gRPC listen port |
+| `ENABLE_METRICS` | `true` | Serve `GET /metrics` (Prometheus text). Always admin- or `METRICS_TOKEN`-guarded |
+| `METRICS_TOKEN` | `""` (off) | Optional static bearer token accepted for `GET /metrics`; admin JWT works regardless |
+| `ENABLE_PPROF` | `false` | Serve `net/http/pprof` on a loopback-only side listener (`127.0.0.1:6060`) |
+| `INDEX_SNAPSHOT` | `true` | Persist the full-text index to `ROOT_DIR/.file-share/index.snapshot` (atomic, CRC-checked). Startup then only re-extracts files whose size/mtime changed; corrupt/missing snapshots fall back to a full rebuild automatically |
+| `AUDIT_LOG` | `true` | Append security events (logins, admin changes, share lifecycle) to `ROOT_DIR/.file-share/audit.jsonl` and expose `GET /api/admin/audit` |
+| `AUDIT_MAX_BYTES` | `8MB` | Rotation size of the active audit file (human sizes accepted) |
+| `AUDIT_KEEP` | `3` | Number of rotated audit generations retained (1–10) |
+| `ENABLE_2FA` | `true` | Expose the TOTP enrollment/verify/disable routes. Login enforcement follows the account state either way (already-enrolled accounts keep challenging even if the routes are hidden) |
+| `ENABLE_API_KEYS` | `true` | Serve the API key endpoints and accept `sfs_…` bearer credentials. `false` hides the routes and stops every existing key from authenticating |
+| `WEBHOOK_URLS` | `""` (off) | Comma-separated `http(s)` endpoints that receive copies of application events (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `restore`, `quota`, `download`, `login`). Non-HTTP(S) or malformed entries are dropped at startup |
+| `WEBHOOK_SECRET` | `""` (unsigned) | HMAC-SHA256 key for webhook deliveries; payloads carry `X-Webhook-Signature: sha256=<hex>` so receivers can verify integrity |
 | `VERSION_KEEP` | `0` (keep all) | Historical snapshots retained per file; oldest are pruned first |
 | `STORAGE_BACKEND` | `local` | `local` (filesystem) or `s3` (S3-compatible object store) |
 | `S3_ENDPOINT` | AWS regional URL | Custom S3 API endpoint (MinIO, R2, Ceph, GCS). Path-style is forced for non-AWS hosts |
@@ -598,7 +725,7 @@ Two deployment shapes are supported:
 
 > **Note:** `ADMIN_USERNAME`/`ADMIN_PASSWORD` are preferred over the legacy `USERNAME`/`PASSWORD` names. `USERNAME` is read from the process environment, and on machines where the OS/shell sets a `USERNAME` variable you may get your login name instead — prefer `ADMIN_USERNAME`.
 
-### Railway (all-in-one, zero config)
+### Railway (API, zero config)
 
 Create a Railway service from this repo — `railway.json` forces the Dockerfile
 build (the file is lowercase `dockerfile`), health-checks `/health`, and
@@ -621,17 +748,18 @@ TCP proxy instead:
    `GET /api/grpc/cert` automatically. The certificate lives under
    `ROOT_DIR/.file-share/tls/` and survives redeploys (keep the volume).
 
-### Netlify UI + hosted API (split)
+### Vercel UI + hosted API (split)
 
-`netlify.toml` builds the frontend and publishes `frontend/dist` with
-`VITE_API_URL` pinned to the API origin (currently
-`https://shares.up.railway.app`). In Netlify choose *Add new site → Import from
-Git* — the file is picked up automatically; edit it there if the API moves.
+The `frontend` and `landing` repositories each carry a `vercel.json` that
+rewrites `/api/*` to the Railway origin (currently
+`https://shares.up.railway.app`). Import each repo into Vercel (*Add New →
+Project*), or let its GitHub Actions deploy workflow push prebuilt output once
+`VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` secrets are set.
 
 ### Option A — Any Docker host
 
 ```bash
-# Build the image (frontend + backend)
+# Build the image (API only — the UI is served by Vercel)
 docker build -t simple-file-share .
 
 # Run it (named volume inherits the image's /data ownership)
@@ -674,11 +802,10 @@ docker run -d --name file-share -p 22010:22010 \
 
 ```bash
 mkdir -p bin && (cd backend && go build -o ../bin/file-share ./cmd/server)  # builds ./bin/file-share
-cd frontend && yarn build && cd ..  # builds frontend/dist
-APP_ENV=production PORT=8090 ROOT_DIR=./data STATIC_DIR=./frontend/dist \
+APP_ENV=production PORT=8090 ROOT_DIR=./data \
 JWT_SECRET="$(openssl rand -hex 32)" \
 ADMIN_USERNAME=admin ADMIN_PASSWORD='local-smoke-only' ENABLE_TLS=false ./bin/file-share & # or: go run ./backend/cmd/server
-# -> http://localhost:8090 serves the UI; API at /api/*; health at /health
+# -> http://localhost:8090/health and /api/* (no UI unless STATIC_DIR points at a built SPA)
 ```
 
 ## 🛡️ Security Considerations
@@ -707,19 +834,17 @@ go test -race ./...        # with the race detector (what CI runs)
 
 Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The suite sits at roughly **47%** today, with the domain policy, auth, gRPC, and handler packages much higher.
 
-### Frontend
-The frontend currently has no unit-test runner; CI type-checks, lints, and
-builds it instead:
+### Clients
+The clients live in sibling repositories with their own CI:
 ```bash
-cd frontend
-yarn lint
-yarn build
+cd ../frontend && yarn lint && yarn build   # Vite SPA
+cd ../landing  && yarn lint && yarn build   # Next.js static export
+cd ../mobile   && flutter analyze && flutter test
 ```
 
 ### Full suite
 ```bash
-cd backend && go vet ./... && go test -race ./... \
-  && cd ../frontend && yarn lint && yarn build
+cd backend && go vet ./... && go test -race ./... && cd .. && make ci
 ```
 
 ## 📊 Code Quality
@@ -728,7 +853,7 @@ cd backend && go vet ./... && go test -race ./... \
 - ✅ **Typed errors**: Domain errors are mapped to HTTP/gRPC status codes in the adapters
 - ✅ **Resource safety**: Upload/download streams are closed via `defer`; ZIPs are built on the fly
 - ✅ **Input validation**: Paths are normalized and scoped through the domain policy
-- ✅ **CI gates**: module tidiness, `gofmt`, `go vet`, race tests with a coverage floor, ESLint, type check, and a Docker build + image smoke test
+- ✅ **CI gates**: module tidiness, `gofmt`, `go vet`, race tests with a 40% coverage floor, and a Docker build + image smoke test
 
 ## 🤝 Contributing
 
@@ -739,30 +864,45 @@ Contributions are welcome — open an issue or submit a pull request.
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite (`cd backend && go test -race ./...`, `cd frontend && yarn lint`) or the Make targets above
+5. Run the test suite (`cd backend && go test -race ./...` or `make ci`) or the Make targets above
 6. Submit a pull request
 
 ## 🔁 CI/CD
 
-This repository uses GitHub Actions for continuous integration and delivery.
+Each repository uses GitHub Actions for continuous integration and delivery.
+
+### This repository (backend)
 
 - **CI Workflow**: `.github/workflows/ci.yml`
   - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 40% coverage floor, and an HTML coverage report artifact
-  - **Frontend** (Vite/React): `tsc` type check, ESLint, production build, with `dist/` uploaded as an artifact
-  - **Website** (Next.js): ESLint, `tsc` type check, static export
-  - **Docker**: builds the production image, then smoke-tests it in a fresh container (health check, login, static UI) before passing
+  - **Docker**: builds the backend-only production image, then smoke-tests it in a fresh container (health check + login) before passing
   - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
 - **Release Workflow**: `.github/workflows/release.yml`
   - Triggers on tags matching `v*.*.*` (e.g., `v1.0.0`) or via manual dispatch
-  - Builds the production image, smoke-tests it (health, login, UI), and only then pushes to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
+  - Builds the image, smoke-tests it (health, login), and only then pushes to **GitHub Container Registry** (`ghcr.io/eslamyasser-dev/simple-file-share`) with tag/semver/latest tags
   - Creates a GitHub Release with auto-generated release notes
+  - **Railway deploy**: runs `railway up --detach` when the `RAILWAY_TOKEN`
+    repository secret (Railway → project → tokens) is set; skipped with a
+    notice otherwise. To avoid double deploys, turn off Railway's git
+    integration if Actions should be the deployer.
+
+### Client repositories
+
+| Repo | CI | Deploy |
+| --- | --- | --- |
+| `frontend` | `yarn install --immutable`, `tsc`, ESLint, Vite build (`dist/` artifact) | `.github/workflows/deploy.yml` → Vercel prebuilt deploy (needs `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`) |
+| `landing` | `yarn install --immutable`, ESLint, `tsc`, static export (`out/` artifact) | same Vercel deploy workflow |
+| `mobile` | `flutter pub get`, `flutter analyze`, `flutter test` | — (add a build workflow when store distribution is needed) |
+
+Dependabot is configured in every repository (Go modules / npm / pub /
+Docker / GitHub Actions as appropriate).
 
 ### Make targets
 
 ```bash
-make run   # start the backend with dev defaults (see Environment variables above)
-make dev   # start the Vite dev server and the backend together (frontend on :5173, API on :3000)
+make run    # start the backend with dev defaults (see Environment variables above)
+make ci     # fmt-check + vet + tests (what CI runs)
 ```
 
 ### How to cut a release
@@ -771,6 +911,7 @@ make dev   # start the Vite dev server and the backend together (frontend on :51
 git tag v1.0.0
 git push origin v1.0.0
 # The release workflow publishes ghcr.io/eslamyasser-dev/simple-file-share:v1.0.0
+# and deploys it to Railway when RAILWAY_TOKEN is configured
 ```
 
 ## 📄 License
@@ -805,6 +946,8 @@ For support, please open an issue in the GitHub repository.
 - [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
 - [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, live gRPC events)
 - [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
+- [x] **Observability**: Prometheus `/metrics` (HTTP+gRPC+SSE gauges, admin/token-guarded), `/health/ready` dependency checks, request-id correlation, loopback pprof
+- [x] **Fast startup**: CRC-checked full-text index snapshot — boots only re-extract files that changed since the last run
 
 ## 📈 Performance Notes
 
@@ -813,8 +956,9 @@ Rather than published benchmarks, the design keeps resource usage predictable:
 - Uploads are written as a stream, so memory stays flat regardless of file size
 - Downloads stream directly from disk; folder downloads are zipped on the fly
 - The gRPC API streams uploads and downloads in 64 KiB chunks
-- Storage indexing is in-memory, so listing is fast at the cost of a scan on startup
+- Storage indexing is in-memory, so listing is fast; the startup stat walk always runs, but with `INDEX_SNAPSHOT` on (default) only files whose size/mtime changed are re-read for the full-text index — unchanged documents are restored from a CRC-checked snapshot
 - No external database, cache, or message broker to operate
+- Observability is dependency-free: a hand-rolled Prometheus registry (`/metrics`), route-pattern labels (bounded cardinality), request-id correlation on every response, and loopback-only pprof
 
 ---
 

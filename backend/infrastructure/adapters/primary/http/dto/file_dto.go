@@ -53,6 +53,12 @@ type HealthResponse struct {
 	Uptime string `json:"uptime,omitempty"`
 }
 
+// ReadyResponse reports per-dependency readiness for GET /health/ready.
+type ReadyResponse struct {
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks"`
+}
+
 func FromFileInfo(f *models.FileInfo) FileItem {
 	if f == nil {
 		return FileItem{}

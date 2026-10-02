@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/services"
+	domainerrors "github.com/EslamYasser-Dev/simple-file-share/domain/errors"
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/dto"
 	secondaryauth "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
@@ -20,12 +22,20 @@ const oauthStateCookie = "fs_oauth_state"
 // The token is returned for API clients and also set as an HttpOnly cookie
 // for browsers (credentials: 'include').
 type TokenHandler struct {
-	tokens *services.TokenService
+	tokens   *services.TokenService
+	audit    *services.AuditService
+	sessions *services.SessionService
 }
 
 func NewTokenHandler(tokens *services.TokenService) *TokenHandler {
 	return &TokenHandler{tokens: tokens}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *TokenHandler) SetAudit(a *services.AuditService) { h.audit = a }
+
+// SetSessions attaches the session registry for client enrichment.
+func (h *TokenHandler) SetSessions(s *services.SessionService) { h.sessions = s }
 
 func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -40,11 +50,26 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pair, err := h.tokens.Login(req.Username, req.Password)
+	pair, err := h.tokens.LoginWithOTP(req.Username, req.Password, req.OTP)
 	if err != nil {
+		if errors.Is(err, domainerrors.ErrTwoFactorRequired) {
+			// Challenge, not a failure: no audit entry, body tells the
+			// client to prompt for a code.
+			respondWithError(w, err)
+			return
+		}
+		// Detail is deliberately generic — the response must not distinguish
+		// bad password from unknown user, and the trail must not either.
+		h.audit.Record(services.AuditLoginFail, req.Username, clientIP(r), "", "invalid credentials")
 		respondWithError(w, err)
 		return
 	}
+	detail := ""
+	if req.OTP != "" {
+		detail = "two-factor"
+	}
+	h.audit.Record(services.AuditLoginOK, req.Username, clientIP(r), "", detail)
+	h.sessions.Observe(pair, clientIP(r), r.UserAgent())
 	maxAge := int(time.Until(pair.ExpiresAt).Seconds())
 	if maxAge < 0 {
 		maxAge = 0
@@ -55,12 +80,16 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // RefreshHandler rotates a valid access token into a new one.
 type RefreshHandler struct {
-	tokens *services.TokenService
+	tokens   *services.TokenService
+	sessions *services.SessionService
 }
 
 func NewRefreshHandler(tokens *services.TokenService) *RefreshHandler {
 	return &RefreshHandler{tokens: tokens}
 }
+
+// SetSessions attaches the session registry for client enrichment.
+func (h *RefreshHandler) SetSessions(s *services.SessionService) { h.sessions = s }
 
 func (h *RefreshHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -81,6 +110,7 @@ func (h *RefreshHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
+	h.sessions.Observe(pair, clientIP(r), r.UserAgent())
 	maxAge := int(time.Until(pair.ExpiresAt).Seconds())
 	if maxAge < 0 {
 		maxAge = 0
@@ -93,11 +123,15 @@ func (h *RefreshHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // browser session cookie.
 type RevokeHandler struct {
 	tokens *services.TokenService
+	audit  *services.AuditService
 }
 
 func NewRevokeHandler(tokens *services.TokenService) *RevokeHandler {
 	return &RevokeHandler{tokens: tokens}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *RevokeHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *RevokeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -119,6 +153,12 @@ func (h *RevokeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
+	// The route is public, so resolve the subject from the token itself.
+	actor := actorName(r)
+	if user, err := h.tokens.Authenticate(token); err == nil && user != nil {
+		actor = user.Username
+	}
+	h.audit.Record(services.AuditTokenRevoke, actor, clientIP(r), "", "logout")
 	respondJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 

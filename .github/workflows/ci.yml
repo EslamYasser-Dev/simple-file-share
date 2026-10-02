@@ -69,132 +69,11 @@ jobs:
             backend/coverage.html
           if-no-files-found: ignore
 
-  frontend:
-    name: Frontend (Vite)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Enable Corepack (Yarn)
-        run: corepack enable
-
-      - name: Resolve Yarn cache directory
-        id: yarn-cache
-        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Yarn downloads
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.yarn-cache.outputs.dir }}
-          key: yarn-${{ runner.os }}-frontend-${{ hashFiles('frontend/yarn.lock') }}
-          restore-keys: |
-            yarn-${{ runner.os }}-frontend-
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Type check
-        run: yarn tsc -b
-
-      - name: Lint
-        run: yarn lint
-
-      - name: Build
-        run: yarn build
-
-      - name: Upload frontend build
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-          if-no-files-found: ignore
-
-  website:
-    name: Website (Next.js)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: website
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Enable Corepack (Yarn)
-        run: corepack enable
-
-      - name: Resolve Yarn cache directory
-        id: yarn-cache
-        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Yarn downloads
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.yarn-cache.outputs.dir }}
-          key: yarn-${{ runner.os }}-website-${{ hashFiles('website/yarn.lock') }}
-          restore-keys: |
-            yarn-${{ runner.os }}-website-
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Type check
-        run: yarn tsc --noEmit
-
-      - name: Lint
-        run: yarn lint
-
-      - name: Build
-        run: yarn build
-
-  mobile:
-    name: Mobile (Flutter)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.5'
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
   docker:
-    name: Docker image
+    name: Docker image (backend only)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [ backend, frontend ]
+    needs: [ backend ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -213,7 +92,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test (health, login, UI)
+      - name: Smoke test (health + login)
         run: |
           set -euo pipefail
           docker run -d --name smoke -p 22010:22010 \
@@ -221,21 +100,80 @@ jobs:
             -e ADMIN_USERNAME=admin \
             -e ADMIN_PASSWORD=ci-smoke-password-123 \
             -e ENABLE_TLS=false \
+            -e METRICS_TOKEN=ci-smoke-metrics-token \
             simple-file-share:ci
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:22010/health >/dev/null; then break; fi
             sleep 1
           done
           curl -sf http://127.0.0.1:22010/health >/dev/null
+          # Readiness must report storage + index checks before login works.
+          curl -sf http://127.0.0.1:22010/health/ready >/dev/null
+          # The scrape endpoint must reject anonymous callers but accept the token.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:22010/metrics)
+          test "$code" = "401"
+          curl -sf -H 'Authorization: Bearer ci-smoke-metrics-token' \
+            http://127.0.0.1:22010/metrics | grep -q fileshare_http_requests_total
+          # Request ids are stamped on every response for log/trace correlation.
+          rid=$(curl -s -D- -o /dev/null -H 'X-Request-Id: ci-trace-12345' \
+            http://127.0.0.1:22010/health | awk -F': ' 'tolower($1)=="x-request-id" {print $2}' | tr -d '\r')
+          test "$rid" = "ci-trace-12345"
           token=$(curl -sf -X POST http://127.0.0.1:22010/api/auth/token \
             -H 'Content-Type: application/json' \
             -d '{"username":"admin","password":"ci-smoke-password-123"}' \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
           test -n "$token"
-          curl -sf -o /dev/null http://127.0.0.1:22010/
+          # API keys: mint a write key, read with it, and prove scope holds
+          # (write cannot reach /api/admin; a dead key gets 401).
+          key=$(curl -sf -X POST http://127.0.0.1:22010/api/auth/api-keys \
+            -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"name":"ci","scope":"write"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+          case "$key" in sfs_*) ;; *) echo "bad key: $key"; exit 1;; esac
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $key" \
+            'http://127.0.0.1:22010/api/files?path=/')
+          test "$code" = "200"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $key" \
+            http://127.0.0.1:22010/api/admin/users)
+          test "$code" = "403"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer sfs_0123456789abcdef_deadbeefdeadbeefdeadbeefdead' \
+            'http://127.0.0.1:22010/api/files?path=/')
+          test "$code" = "401"
+          # The audit trail must have recorded the login and the key mint.
+          curl -sf -H "Authorization: Bearer $token" 'http://127.0.0.1:22010/api/admin/audit?limit=10' \
+            | python3 -c 'import json,sys; actions={e["action"] for e in json.load(sys.stdin)["items"]}; missing={"login.ok","apikey.create"}-actions; assert not missing, f"missing audit actions: {missing}"'
+          # P4b/c: downloads revalidate (ETag/304) and support byte ranges;
+          # list endpoints answer the {"items":[…],"nextCursor":…} envelope.
+          echo ci-bytes > ci-smoke.txt
+          curl -sf -H "Authorization: Bearer $token" -F 'file=@ci-smoke.txt' \
+            http://127.0.0.1:22010/api/upload >/dev/null
+          page=$(curl -sf -H "Authorization: Bearer $token" 'http://127.0.0.1:22010/api/files?path=/&limit=1')
+          echo "$page" | python3 -c 'import json,sys;p=json.load(sys.stdin);assert isinstance(p,dict) and isinstance(p.get("items"),list),p'
+          hdrs=$(curl -sD- -o /dev/null -H "Authorization: Bearer $token" \
+            'http://127.0.0.1:22010/api/files/download?path=/ci-smoke.txt')
+          etag=$(printf '%s' "$hdrs" | awk -F': ' 'tolower($1)=="etag" {print $2}' | tr -d '\r')
+          test -n "$etag"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
+            -H "Authorization: Bearer $token" 'http://127.0.0.1:22010/api/files/download?path=/ci-smoke.txt')
+          test "$code" = "304"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-1' \
+            -H "Authorization: Bearer $token" 'http://127.0.0.1:22010/api/files/download?path=/ci-smoke.txt')
+          test "$code" = "206"
+          # P4a: a password-protected, single-use share enforces its policy.
+          stoken=$(curl -sf -X POST http://127.0.0.1:22010/api/shares \
+            -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"path":"/ci-smoke.txt","password":"ci-share-pw","maxDownloads":1}' \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:22010/api/share/$stoken")
+          test "$code" = "401"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Share-Password: ci-share-pw' \
+            "http://127.0.0.1:22010/api/share/$stoken")
+          test "$code" = "200"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Share-Password: ci-share-pw' \
+            "http://127.0.0.1:22010/api/share/$stoken")
+          test "$code" = "410"
           echo "image smoke OK"
 
       - name: Cleanup
         if: always()
         run: docker rm -f smoke || true
-

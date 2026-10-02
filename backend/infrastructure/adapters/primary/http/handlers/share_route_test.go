@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,8 +31,8 @@ func TestShareRouteIsRateLimited(t *testing.T) {
 		services.NewDownloadZipService(fileRepo, scoper),
 	)
 	server := xhttp.NewServer("0", noopTLSCertGenerator{}, logging.NewStdLoggerPlain(), xhttp.RouteHandlers{
-		Share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService)),
-	}, nil, nil, false)
+		Share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService, auth.NewPBKDF2Hasher())),
+	}, nil, nil, nil, false)
 
 	mux := server.RegisterRoutesForTest()
 	srv := httptest.NewServer(mux)

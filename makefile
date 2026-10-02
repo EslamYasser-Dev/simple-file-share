@@ -1,12 +1,17 @@
 # ==============================================================================
-# Simple File Share — developer & CI targets
+# Simple File Share — backend developer & CI targets
+# ==============================================================================
+#
+# This repository is backend-only. The web clients live in sibling repos:
+#   frontend/  React + Vite SPA      → Vercel
+#   landing/   Next.js landing site  → Vercel
+#   mobile/    Flutter app           → stores
 # ==============================================================================
 
 SHELL := /bin/sh
 
 # ---- Project layout ----------------------------------------------------------
 BACKEND_DIR  := backend
-FRONTEND_DIR := frontend
 BIN_DIR      := bin
 BUILD_DIR    := build
 
@@ -24,9 +29,6 @@ LDFLAGS      := -s -w
 COVER_FILE   := $(BACKEND_DIR)/coverage.out
 COVER_MIN    ?= 40
 
-# ---- Node --------------------------------------------------------------------
-YARN         ?= corepack yarn
-
 # ---- Docker ------------------------------------------------------------------
 IMAGE_NAME   ?= simple-file-share
 IMAGE_TAG    ?= $(VERSION)
@@ -39,7 +41,7 @@ COMPOSE      ?= podman compose
 # ==============================================================================
 .PHONY: help
 help: ## Show this help
-	@printf "\n\033[1mSimple File Share\033[0m — available targets:\n\n"
+	@printf "\n\033[1mSimple File Share (backend)\033[0m — available targets:\n\n"
 	@awk 'BEGIN {FS = ":.*?## "}; /^[a-zA-Z_-]+:.*?## / { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@printf "\n"
 
@@ -47,17 +49,12 @@ help: ## Show this help
 # Setup
 # ==============================================================================
 .PHONY: setup
-setup: backend-deps frontend-deps ## Install backend + frontend dependencies
+setup: backend-deps ## Install backend dependencies
 
 .PHONY: backend-deps
 backend-deps: ## Download Go modules
 	@echo "📦 Downloading Go modules..."
 	@cd $(BACKEND_DIR) && $(GO) mod download
-
-.PHONY: frontend-deps
-frontend-deps: ## Install frontend dependencies (yarn install --immutable)
-	@echo "📦 Installing frontend dependencies..."
-	@cd $(FRONTEND_DIR) && $(YARN) install --immutable
 
 # ==============================================================================
 # Formatting & static analysis
@@ -81,13 +78,8 @@ vet: ## Run go vet
 	@echo "🔬 Running go vet..."
 	@cd $(BACKEND_DIR) && $(GO) vet ./...
 
-.PHONY: lint-frontend
-lint-frontend: ## Lint the frontend
-	@echo "🔬 Linting frontend..."
-	@cd $(FRONTEND_DIR) && $(YARN) lint
-
 .PHONY: lint
-lint: fmt-check vet lint-frontend ## Run every linter
+lint: fmt-check vet ## Run every linter
 
 # ==============================================================================
 # Build
@@ -110,35 +102,17 @@ build-local: ## Build the server for the host platform
 	@cd $(BACKEND_DIR) && $(GO) build -ldflags="$(LDFLAGS)" -o ../$(BIN_NAME) $(SERVER_PKG)
 	@echo "✅ Built $(BIN_NAME)"
 
-.PHONY: frontend-build
-frontend-build: ## Build the React frontend into frontend/dist
-	@echo "🔨 Building frontend..."
-	@cd $(FRONTEND_DIR) && $(YARN) build
-	@echo "✅ Frontend build complete"
-
-.PHONY: build-all
-build-all: build-linux frontend-build ## Build backend + frontend
-
 # ==============================================================================
 # Test & coverage
 # ==============================================================================
 .PHONY: test
-test: test-backend test-frontend ## Run all tests
+test: test-backend ## Run all tests
 
 .PHONY: test-backend
 test-backend: ## Run backend tests with coverage
 	@echo "🧪 Running backend tests..."
 	@cd $(BACKEND_DIR) && $(GO) test -v ./... -coverprofile=coverage.out -covermode=count
 	@cd $(BACKEND_DIR) && $(GO) tool cover -func=coverage.out | grep "total:"
-
-.PHONY: test-frontend
-test-frontend: ## Run frontend tests (skipped when no test script)
-	@if grep -q '"test":' $(FRONTEND_DIR)/package.json; then \
-		echo "🧪 Running frontend tests..."; \
-		cd $(FRONTEND_DIR) && $(YARN) test; \
-	else \
-		echo "⏭  No frontend test script — skipped"; \
-	fi
 
 .PHONY: coverage
 coverage: test-backend ## Generate the HTML coverage report
@@ -160,23 +134,9 @@ run: build-local ## Run the server in development mode
 	@APP_ENV=development ./$(BIN_NAME)
 
 .PHONY: run-prod
-run-prod: build-local frontend-build ## Run the server in production mode
+run-prod: build-local ## Run the server in production mode (API only)
 	@echo "🚀 Starting server (production)..."
-	@APP_ENV=production STATIC_DIR=$(FRONTEND_DIR)/dist ./$(BIN_NAME)
-
-.PHONY: dev-frontend
-dev-frontend: ## Start the Vite dev server
-	@cd $(FRONTEND_DIR) && $(YARN) dev
-
-# ==============================================================================
-# Development
-# ==============================================================================
-.PHONY: dev
-dev: ## Run backend + frontend dev servers together
-	@trap 'kill 0' EXIT INT TERM; \
-	(cd $(FRONTEND_DIR) && $(YARN) dev) & \
-	$(MAKE) run & \
-	wait
+	@APP_ENV=production ./$(BIN_NAME)
 
 # ==============================================================================
 # Containers (Podman)
@@ -201,18 +161,13 @@ podman-logs: ## Tail Podman Compose logs
 # Housekeeping
 # ==============================================================================
 .PHONY: clean
-clean: ## Remove build, coverage, and frontend dist artifacts
+clean: ## Remove build and coverage artifacts
 	@echo "🧹 Cleaning artifacts..."
-	@rm -rf $(BIN_DIR)/* $(BUILD_DIR) $(COVER_FILE) coverage.html $(FRONTEND_DIR)/dist
+	@rm -rf $(BIN_DIR)/* $(BUILD_DIR) $(COVER_FILE) coverage.html
 	@echo "✅ Clean complete"
-
-.PHONY: clean-all
-clean-all: clean ## Clean plus frontend node_modules
-	@rm -rf $(FRONTEND_DIR)/node_modules
-	@echo "✅ Deep clean complete"
 
 # ==============================================================================
 # CI
 # ==============================================================================
 .PHONY: ci
-ci: fmt-check vet test-backend lint-frontend frontend-build ## Full CI pipeline
+ci: fmt-check vet test-backend ## Full CI pipeline

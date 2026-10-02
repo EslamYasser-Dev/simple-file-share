@@ -133,3 +133,28 @@ func TestShareFileRepositoryPurgeExpired(t *testing.T) {
 		t.Errorf("shares remaining = %d, want 2", len(all))
 	}
 }
+
+func TestShareFileRepositoryConsumeDownload(t *testing.T) {
+	repo := NewShareFileRepository(t.TempDir())
+	limited := &models.Share{Token: "tok1", Path: "a.txt", MaxDownloads: 2, CreatedAt: time.Now()}
+	if err := repo.Create(limited); err != nil {
+		t.Fatal(err)
+	}
+	// Two consumes succeed, the third reports exhaustion atomically.
+	for i := 0; i < 2; i++ {
+		if err := repo.ConsumeDownload("tok1"); err != nil {
+			t.Fatalf("consume %d: %v", i+1, err)
+		}
+	}
+	if err := repo.ConsumeDownload("tok1"); !errors.Is(err, domainerrors.ErrShareLimitReached) {
+		t.Fatalf("third consume err = %v, want ErrShareLimitReached", err)
+	}
+	got, err := repo.FindByToken("tok1")
+	if err != nil || got.Downloads != 2 {
+		t.Fatalf("downloads = %d err=%v, want 2", got.Downloads, err)
+	}
+	// Unknown token.
+	if err := repo.ConsumeDownload("nope"); !errors.Is(err, domainerrors.ErrShareNotFound) {
+		t.Fatalf("unknown token err = %v", err)
+	}
+}

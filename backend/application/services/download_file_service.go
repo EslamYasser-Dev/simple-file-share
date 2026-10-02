@@ -49,11 +49,18 @@ func (s *DownloadFileService) Execute(user *models.User, path string) (*models.D
 	if err != nil {
 		return nil, err
 	}
+	info, err := s.fileRepo.GetFileInfo(physical)
+	if err != nil {
+		stream.Close()
+		return nil, err
+	}
 	contentType := s.policy.ContentTypeFor(filename)
 	return &models.Download{
 		Stream:      stream,
 		Filename:    filename,
 		ContentType: contentType,
 		Inline:      s.policy.IsInlineContentType(contentType),
+		Size:        info.Size,
+		ModTime:     info.Modified,
 	}, nil
 }

@@ -14,21 +14,34 @@ paths:
   /api/files:
     get:
       summary: List directory contents
+      description: Returns the shared page envelope; pass nextCursor back verbatim to continue.
       parameters:
         - name: path
           in: query
           schema:
             type: string
             example: ""
+        - name: limit
+          in: query
+          description: Page size (default 50, clamped to 1..500)
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
       responses:
         "200":
-          description: JSON array of file entries
+          description: One page of file entries
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FileItem"
+                $ref: "#/components/schemas/FilePage"
+        "400":
+          description: Invalid path or malformed cursor
         "401":
           description: Unauthorized
         "404":
@@ -56,19 +69,40 @@ paths:
   /api/files/download:
     get:
       summary: Download a file or ZIP archive
+      description: >
+        Regular files carry a strong ETag (name+size+mtime) and support byte
+        ranges: If-None-Match revalidates to 304, Range/If-Range serve 206
+        partial content (416 when unsatisfiable). ZIP archives are synthetic
+        streams and are always sent whole with a 200.
       parameters:
         - name: path
           in: query
           required: true
           schema:
             type: string
+        - name: Range
+          in: header
+          description: Byte range, e.g. bytes=0-1023 (seekable files only)
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          description: ETag from a previous response; matches answer 304
+          schema:
+            type: string
       responses:
         "200":
           description: File or ZIP stream
+        "206":
+          description: Partial content matching the requested byte range
+        "304":
+          description: Not modified (validator matched)
         "401":
           description: Unauthorized
         "404":
           description: Not found
+        "416":
+          description: Requested range not satisfiable
 
   /api/files/info:
     get:
@@ -101,20 +135,25 @@ paths:
             example: report
         - name: limit
           in: query
+          description: Page size (default 50, clamped to 1..500)
           schema:
             type: integer
             default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
       responses:
         "200":
-          description: Matching file entries (name/path index plus full-text content index)
+          description: One page of matches (name/path index plus full-text content index)
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FileItem"
+                $ref: "#/components/schemas/FilePage"
         "400":
-          description: Missing or invalid query
+          description: Missing or invalid query, or malformed cursor
 
   /api/events:
     get:
@@ -463,18 +502,123 @@ paths:
         "401":
           description: Invalid credentials
 
-  /api/admin/users:
+  /api/auth/api-keys:
     get:
-      summary: List accounts with storage usage (users.read)
+      summary: List the caller's API keys (metadata only)
       responses:
         "200":
-          description: Array of user stats
+          description: Key list
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/UserStats"
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKey"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Authentication required
+    post:
+      summary: Mint an API key (plaintext returned once)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 80
+                scope:
+                  type: string
+                  enum: [read, write, admin]
+                  default: read
+                expiresIn:
+                  type: integer
+                  format: int64
+                  description: Seconds until expiry (0 or absent = never)
+      responses:
+        "201":
+          description: Key created; `key` is shown exactly once
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    example: sfs_0123456789abcdef_AbCdEfGhIjKlMnOpQrStUvWxYz01234567
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  scope:
+                    type: string
+                  prefix:
+                    type: string
+        "400":
+          description: Validation failed
+        "401":
+          description: Unauthorized
+        "403":
+          description: Authentication required
+
+  /api/auth/api-keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      summary: Revoke one of the caller's API keys
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [revoked]
+        "401":
+          description: Unauthorized
+        "403":
+          description: Authentication required
+        "404":
+          description: Unknown key id
+
+  /api/admin/users:
+    get:
+      summary: List accounts with storage usage (users.read)
+      parameters:
+        - name: limit
+          in: query
+          description: Page size (default 50, clamped to 1..500)
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of user stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStatsPage"
+        "400":
+          description: Malformed cursor
         "401":
           description: Unauthorized
         "403":
@@ -615,18 +759,56 @@ paths:
         "404":
           description: Not found
 
-  /api/admin/roles:
-    get:
-      summary: List built-in and custom roles (roles.manage)
+  /api/admin/users/{username}/totp/reset:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Clear two-factor authentication for an account (users.update)
       responses:
         "200":
-          description: Role list
+          description: Two-factor state cleared
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Role"
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [reset]
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/roles:
+    get:
+      summary: List built-in and custom roles (roles.manage)
+      parameters:
+        - name: limit
+          in: query
+          description: Page size (default 50, clamped to 1..500)
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RolePage"
+        "400":
+          description: Malformed cursor
         "403":
           description: Forbidden
     post:
@@ -734,6 +916,41 @@ paths:
         "403":
           description: Forbidden
 
+  /api/admin/audit:
+    get:
+      summary: Security audit trail page, newest first (users.read)
+      parameters:
+        - name: action
+          in: query
+          description: Exact action filter, e.g. login.fail
+          schema:
+            type: string
+        - name: actor
+          in: query
+          description: Exact actor (username) filter
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of audit entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+        "403":
+          description: Forbidden
+
   /api/grpc/cert:
     get:
       summary: gRPC TLS certificate for client pinning
@@ -751,6 +968,107 @@ paths:
                 type: string
         "404":
           description: gRPC TLS disabled
+
+  /api/shares:
+    get:
+      summary: List the caller's share links
+      parameters:
+        - name: limit
+          in: query
+          description: Page size (default 50, clamped to 1..500)
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: cursor
+          in: query
+          description: Opaque next cursor from a previous page
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of share links owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharePage"
+        "400":
+          description: Malformed cursor
+        "401":
+          description: Unauthorized
+    post:
+      summary: Create a share link
+      description: >
+        Optional password protection (sent to readers via the X-Share-Password
+        header or password query parameter) and an optional download budget
+        (0 or absent = unlimited; serving a limited link fails with 410
+        share_limit_reached once exhausted).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareCreateRequest"
+      responses:
+        "201":
+          description: Created link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareItem"
+        "400":
+          description: Validation error (negative maxDownloads, oversized password)
+        "401":
+          description: Unauthorized
+        "404":
+          description: Path not found
+    delete:
+      summary: Revoke a share link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: Revoked
+        "404":
+          description: Unknown token
+
+  /api/share/{token}:
+    get:
+      summary: Fetch a shared file (public)
+      description: >
+        Password-protected links require the password in the X-Share-Password
+        header or password query parameter; a missing password answers 401
+        share_password_required and a wrong one 401 share_password_invalid.
+        Limited links return 410 share_limit_reached once the budget is spent.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Share-Password
+          in: header
+          description: Password for protected links (query parameter password is equivalent)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File stream (ETag/Range semantics as on /api/files/download)
+        "401":
+          description: Password required or invalid
+        "404":
+          description: Unknown, revoked, or missing target
+        "410":
+          description: Expired link or exhausted download budget
 
   /health:
     get:
@@ -947,3 +1265,133 @@ components:
         bytes:
           type: integer
           format: int64
+    AuditEntry:
+      type: object
+      properties:
+        at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          description: Stable dot-separated action, e.g. login.ok, user.create
+        actor:
+          type: string
+        target:
+          type: string
+        remote:
+          type: string
+        detail:
+          type: string
+    AuditPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page
+    APIKey:
+      type: object
+      description: API key metadata; the secret is never returned after minting
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [read, write, admin]
+        keyPrefix:
+          type: string
+          description: Display-only prefix (sfs_<id>_…); contains no secret characters
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+    ShareCreateRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        expiresInSeconds:
+          type: integer
+          description: Validity in seconds; 0 or absent = never expires
+        password:
+          type: string
+          description: Optional reader password (max 256 chars); stored only as a PBKDF2 hash
+          maxLength: 256
+        maxDownloads:
+          type: integer
+          description: Optional download budget; 0 or absent = unlimited
+          minimum: 0
+    ShareItem:
+      type: object
+      properties:
+        token:
+          type: string
+        path:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        passwordProtected:
+          type: boolean
+        maxDownloads:
+          type: integer
+          description: 0 = unlimited
+        downloads:
+          type: integer
+          description: Consumed budget so far (limited links only)
+    FilePage:
+      type: object
+      description: Shared list envelope; nextCursor is absent on the last page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileItem"
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page
+    SharePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShareItem"
+        nextCursor:
+          type: string
+    UserStatsPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserStats"
+        nextCursor:
+          type: string
+    RolePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+        nextCursor:
+          type: string

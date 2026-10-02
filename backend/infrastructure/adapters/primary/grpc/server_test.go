@@ -79,7 +79,7 @@ func newGRPCFixture(t *testing.T, enableAuth bool) *grpcFixture {
 	searchService := services.NewSearchFilesService(index, scoper, nil)
 	registerService := services.NewRegisterUserService(userRepo, hasher, fileRepo, scoper, true, 0)
 	usersService := services.NewListUsersService(userRepo, index, scoper, roleCatalog)
-	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper)
+	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper, auth.NewPBKDF2Hasher())
 	listSharesService := services.NewListSharesService(shareRepo, scoper, roleCatalog)
 	revokeShareService := services.NewRevokeShareService(shareRepo, scoper, roleCatalog)
 	eventBus := events.NewBus()

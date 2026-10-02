@@ -25,4 +25,9 @@ type ShareRepository interface {
 	// PurgeExpired atomically removes shares whose validity window has passed
 	// and returns the number removed.
 	PurgeExpired(now time.Time) (int, error)
+	// ConsumeDownload atomically records one download against a limited
+	// link's budget. It returns domainerrors.ErrShareLimitReached when the
+	// budget is already used up, so concurrent requests cannot overshoot.
+	// Unlimited links are not tracked here and should not call it.
+	ConsumeDownload(token string) error
 }

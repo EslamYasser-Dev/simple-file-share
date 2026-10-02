@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,11 +41,11 @@ func newShareHandlerFixture(t *testing.T) *shareHandlerFixture {
 	)
 	return &shareHandlerFixture{
 		shares: NewSharesHandler(
-			services.NewCreateShareService(fileRepo, shareRepo, scoper),
+			services.NewCreateShareService(fileRepo, shareRepo, scoper, auth.NewPBKDF2Hasher()),
 			services.NewListSharesService(shareRepo, scoper, services.NewRoleCatalog(nil)),
 			services.NewRevokeShareService(shareRepo, scoper, services.NewRoleCatalog(nil)),
 		),
-		share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService)),
+		share: NewShareDownloadHandler(services.NewResolveShareService(shareRepo, scoper, downloadService, auth.NewPBKDF2Hasher())),
 		repo:  shareRepo,
 	}
 }
@@ -58,14 +59,14 @@ func doJSON(t *testing.T, h http.Handler, method, target, body string) *httptest
 	return rec
 }
 
-// decodeShares unmarshals a share list response body.
-func decodeShares(t *testing.T, rec *httptest.ResponseRecorder) []dto.ShareItem {
+// decodeShares unmarshals a share list page response body.
+func decodeShares(t *testing.T, rec *httptest.ResponseRecorder) dto.Page[dto.ShareItem] {
 	t.Helper()
-	var items []dto.ShareItem
-	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+	var page dto.Page[dto.ShareItem]
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
-	return items
+	return page
 }
 
 func TestSharesHandlerCreateListRevoke(t *testing.T) {
@@ -101,7 +102,7 @@ func TestSharesHandlerCreateListRevoke(t *testing.T) {
 	}
 
 	listed := decodeShares(t, doJSON(t, f.shares, http.MethodGet, "/api/shares", ""))
-	if len(listed) != 1 || listed[0].Token != created.Token {
+	if len(listed.Items) != 1 || listed.Items[0].Token != created.Token {
 		t.Fatalf("listed = %+v, want the created share", listed)
 	}
 
@@ -116,7 +117,7 @@ func TestSharesHandlerCreateListRevoke(t *testing.T) {
 		t.Fatalf("revoke = %d, want 200", rec.Code)
 	}
 	listed = decodeShares(t, doJSON(t, f.shares, http.MethodGet, "/api/shares", ""))
-	if len(listed) != 0 {
+	if len(listed.Items) != 0 {
 		t.Fatalf("listed after revoke = %+v, want empty", listed)
 	}
 }
@@ -195,5 +196,81 @@ func TestShareDownloadHandler(t *testing.T) {
 	f.share.ServeHTTP(w, req)
 	if w.Code != http.StatusGone {
 		t.Fatalf("expired share = %d, want 410", w.Code)
+	}
+}
+
+// TestSharePolicyHTTP covers the public policy surface: password challenge
+// (header and query), download budget exhaustion, and creation validation.
+func TestSharePolicyHTTP(t *testing.T) {
+	f := newShareHandlerFixture(t)
+
+	// Create with both policies.
+	rec := doJSON(t, f.shares, http.MethodPost, "/api/shares",
+		`{"path":"/hello.txt","password":"open-sesame","maxDownloads":2}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d body=%s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "open-sesame") || strings.Contains(body, "passwordHash") {
+		t.Fatalf("create response leaks the password: %s", body)
+	}
+	var created dto.ShareItem
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.PasswordProtected || created.MaxDownloads != 2 {
+		t.Fatalf("created = %+v", created)
+	}
+
+	// Missing password -> 401 with the machine code.
+	req := httptest.NewRequest(http.MethodGet, "/api/share/"+created.Token, nil)
+	w := httptest.NewRecorder()
+	f.share.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "share_password_required") {
+		t.Fatalf("missing password = %d %s", w.Code, w.Body)
+	}
+
+	// Wrong password via header.
+	req = httptest.NewRequest(http.MethodGet, "/api/share/"+created.Token, nil)
+	req.Header.Set("X-Share-Password", "nope")
+	w = httptest.NewRecorder()
+	f.share.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "share_password_invalid") {
+		t.Fatalf("wrong password = %d %s", w.Code, w.Body)
+	}
+
+	// Correct password via query parameter serves and charges one download.
+	req = httptest.NewRequest(http.MethodGet, "/api/share/"+created.Token+"?password=open-sesame", nil)
+	w = httptest.NewRecorder()
+	f.share.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || w.Body.String() != "sup" {
+		t.Fatalf("correct password = %d %q", w.Code, w.Body)
+	}
+
+	// Second serve works, third hits the budget -> 410.
+	for i := 0; i < 2; i++ {
+		req = httptest.NewRequest(http.MethodGet, "/api/share/"+created.Token, nil)
+		req.Header.Set("X-Share-Password", "open-sesame")
+		w = httptest.NewRecorder()
+		f.share.ServeHTTP(w, req)
+		if i == 0 && w.Code != http.StatusOK {
+			t.Fatalf("serve 2 = %d %s", w.Code, w.Body)
+		}
+		if i == 1 {
+			if w.Code != http.StatusGone || !strings.Contains(w.Body.String(), "share_limit_reached") {
+				t.Fatalf("exhausted = %d %s", w.Code, w.Body)
+			}
+		}
+	}
+
+	// Policy validation surfaces as 400s.
+	if rec := doJSON(t, f.shares, http.MethodPost, "/api/shares",
+		`{"path":"/hello.txt","maxDownloads":-2}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative maxDownloads = %d, want 400", rec.Code)
+	}
+	long := strings.Repeat("p", 257)
+	if rec := doJSON(t, f.shares, http.MethodPost, "/api/shares",
+		`{"path":"/hello.txt","password":"`+long+`"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized password = %d, want 400", rec.Code)
 	}
 }

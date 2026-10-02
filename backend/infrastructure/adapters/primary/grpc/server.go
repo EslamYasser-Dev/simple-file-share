@@ -29,6 +29,20 @@ type Server struct {
 	shutdownWait time.Duration
 }
 
+// ServerOption customizes optional gRPC wiring without breaking existing
+// positional call sites.
+type ServerOption func(*serverOptions)
+
+type serverOptions struct {
+	recorder ports.MetricsRecorder
+}
+
+// WithMetrics enables RPC metrics interceptors. The metrics chain is installed
+// before the auth chain so rejected calls are counted too.
+func WithMetrics(rec ports.MetricsRecorder) ServerOption {
+	return func(o *serverOptions) { o.recorder = rec }
+}
+
 // NewServer builds the gRPC server, registering the health and reflection
 // services plus the application services.
 func NewServer(
@@ -43,11 +57,25 @@ func NewServer(
 	shareService *ShareService,
 	eventsService *EventsService,
 	fileService *FileService,
+	opts ...ServerOption,
 ) (*Server, error) {
-	opts := []grpc.ServerOption{
+	var cfg serverOptions
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	var serverOpts []grpc.ServerOption
+	// Metrics first (outermost), so auth rejections still increment counters.
+	if cfg.recorder != nil {
+		serverOpts = append(serverOpts,
+			grpc.ChainUnaryInterceptor(unaryMetricsInterceptor(cfg.recorder)),
+			grpc.ChainStreamInterceptor(streamMetricsInterceptor(cfg.recorder)),
+		)
+	}
+	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unaryAuthInterceptor(authService, tokens, enableAuth)),
 		grpc.ChainStreamInterceptor(streamAuthInterceptor(authService, tokens, enableAuth)),
-	}
+	)
 
 	if enableTLS {
 		certPEM, keyPEM, err := tlsGenerator.GenerateCert()
@@ -62,10 +90,10 @@ func NewServer(
 			MinVersion:   tls.VersionTLS13,
 			Certificates: []tls.Certificate{cert},
 		})
-		opts = append(opts, grpc.Creds(creds))
+		serverOpts = append(serverOpts, grpc.Creds(creds))
 	}
 
-	grpcServer := grpc.NewServer(opts...)
+	grpcServer := grpc.NewServer(serverOpts...)
 	filesharev1.RegisterAuthServiceServer(grpcServer, authStore)
 	filesharev1.RegisterShareServiceServer(grpcServer, shareService)
 	filesharev1.RegisterEventsServiceServer(grpcServer, eventsService)

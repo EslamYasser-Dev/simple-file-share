@@ -43,19 +43,34 @@ type RouteHandlers struct {
 	AdminRoles      http.Handler
 	AdminRole       http.Handler
 	AdminAnalytics  http.Handler
-	SelfPass        http.Handler
-	Shares          http.Handler
-	Share           http.Handler
-	Versions        http.Handler
-	Version         http.Handler
-	Restore         http.Handler
-	Health          http.Handler
-	Token           http.Handler
-	Refresh         http.Handler
-	Revoke          http.Handler
-	OAuthStart      http.Handler
-	OAuthCb         http.Handler
-	GRPCCert        http.Handler
+	// AdminAudit is GET /api/admin/audit. Nil when auditing is disabled.
+	AdminAudit http.Handler
+	// Sessions is GET/DELETE /api/auth/sessions (list + revoke own sessions).
+	Sessions http.Handler
+	// Totp is POST /api/auth/totp/{action}. Nil when ENABLE_2FA=false.
+	Totp http.Handler
+	// APIKeys is GET/POST /api/auth/api-keys + DELETE /api/auth/api-keys/{id}.
+	// Nil when ENABLE_API_KEYS=false.
+	APIKeys http.Handler
+	// AdminTotpReset is POST /api/admin/users/{username}/totp/reset.
+	AdminTotpReset http.Handler
+	SelfPass       http.Handler
+	Shares         http.Handler
+	Share          http.Handler
+	Versions       http.Handler
+	Version        http.Handler
+	Restore        http.Handler
+	Health         http.Handler
+	Token          http.Handler
+	Refresh        http.Handler
+	Revoke         http.Handler
+	OAuthStart     http.Handler
+	OAuthCb        http.Handler
+	GRPCCert       http.Handler
+	// Metrics is GET /metrics (Prometheus text). Nil disables the route.
+	Metrics http.Handler
+	// Ready is GET /health/ready. Nil disables the route.
+	Ready http.Handler
 }
 
 type Server struct {
@@ -65,6 +80,7 @@ type Server struct {
 	handlers     RouteHandlers
 	authService  *services.AuthenticateService
 	tokenService *services.TokenService
+	apiKeys      *services.APIKeyService
 	enableAuth   bool
 	httpServer   *http.Server
 	staticDir    string
@@ -76,6 +92,7 @@ type Server struct {
 	// keeps resume traffic from tripping the general API limiter.
 	uploadLimiter *IPLimiter
 	grpcHandler   http.Handler
+	recorder      ports.MetricsRecorder
 }
 
 func NewServer(
@@ -85,6 +102,7 @@ func NewServer(
 	handlers RouteHandlers,
 	authService *services.AuthenticateService,
 	tokenService *services.TokenService,
+	apiKeys *services.APIKeyService,
 	enableAuth bool,
 ) *Server {
 	return &Server{
@@ -94,6 +112,7 @@ func NewServer(
 		handlers:     handlers,
 		authService:  authService,
 		tokenService: tokenService,
+		apiKeys:      apiKeys,
 		enableAuth:   enableAuth,
 		httpServer: &http.Server{
 			Addr: ":" + port,
@@ -126,6 +145,12 @@ func (s *Server) SetGRPCHandler(h http.Handler) {
 	s.grpcHandler = h
 }
 
+// SetMetricsRecorder enables per-request telemetry (route-labelled counters
+// and duration histograms) for every response served by this listener.
+func (s *Server) SetMetricsRecorder(r ports.MetricsRecorder) {
+	s.recorder = r
+}
+
 func (s *Server) ConfigureTLS(enableTLS bool) {
 	s.useTLS = enableTLS
 }
@@ -149,8 +174,10 @@ func (s *Server) Start() error {
 	}
 
 	// Wrap the whole mux so the static SPA, share links, and swagger routes
-	// receive the same security headers as the API chains.
-	base := securityHeaders(mux)
+	// receive the same security headers as the API chains. observeRequests is
+	// the inner layer: it stamps X-Request-Id and records metrics with the
+	// route pattern the mux resolved in place.
+	base := securityHeaders(observeRequests(s.recorder, mux))
 	if s.grpcHandler != nil {
 		grpcHandler := s.grpcHandler
 		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +281,20 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/files/content", apiChain(s.handlers.Update))
 	mux.Handle("/api/directories", apiChain(s.handlers.Directory))
 	mux.Handle("/api/auth/me", apiChain(s.handlers.Me))
+	if s.handlers.Sessions != nil {
+		mux.Handle("/api/auth/sessions", apiChain(s.handlers.Sessions))
+		mux.Handle("/api/auth/sessions/{jti}", apiChain(s.handlers.Sessions))
+	}
+	if s.handlers.Totp != nil {
+		mux.Handle("/api/auth/totp/{action}", apiChain(s.handlers.Totp))
+	}
+	if s.handlers.APIKeys != nil {
+		mux.Handle("/api/auth/api-keys", apiChain(s.handlers.APIKeys))
+		mux.Handle("/api/auth/api-keys/{id}", apiChain(s.handlers.APIKeys))
+	}
+	if s.handlers.AdminTotpReset != nil {
+		mux.Handle("/api/admin/users/{username}/totp/reset", apiChain(s.handlers.AdminTotpReset))
+	}
 	mux.Handle("/api/auth/password", apiChain(s.handlers.SelfPass))
 	mux.Handle("/api/admin/users", apiChain(s.handlers.AdminUser))
 	mux.Handle("/api/admin/users/{username}", apiChain(s.handlers.AdminUser))
@@ -262,6 +303,9 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/admin/roles", apiChain(s.handlers.AdminRoles))
 	mux.Handle("/api/admin/roles/{name}", apiChain(s.handlers.AdminRole))
 	mux.Handle("/api/admin/analytics/{report}", apiChain(s.handlers.AdminAnalytics))
+	if s.handlers.AdminAudit != nil {
+		mux.Handle("/api/admin/audit", apiChain(s.handlers.AdminAudit))
+	}
 	mux.Handle("/api/shares", apiChain(s.handlers.Shares))
 	mux.Handle("/api/files/versions", apiChain(s.handlers.Versions))
 	mux.Handle("/api/files/version", apiChain(s.handlers.Version))
@@ -308,6 +352,28 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	)
 
 	mux.Handle("/health", publicMiddleware(s.handlers.Health))
+
+	// Readiness shares the liveness chain: cheap probes, no credentials, the
+	// auth limiter budget is generous enough for 5-10s probe intervals.
+	if s.handlers.Ready != nil {
+		mux.Handle("/health/ready", publicMiddleware(s.handlers.Ready))
+	}
+
+	// The scrape endpoint authenticates itself (METRICS_TOKEN or admin), so
+	// it deliberately sits outside the auth chain: a token-only scraper must
+	// not be forced through Basic auth, and an admin JWT must not be rejected
+	// by an earlier chain. Rate-limited like the general API.
+	if s.handlers.Metrics != nil {
+		mux.Handle("/metrics", chainMiddleware(
+			s.handlers.Metrics,
+			corsMiddleware,
+			securityHeaders,
+			func(next http.Handler) http.Handler {
+				return loggingMiddleware(next, s.logger)
+			},
+			RateLimitMiddleware(s.apiLimiter),
+		))
+	}
 
 	if swaggerEnabled() {
 		mux.HandleFunc("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -367,7 +433,7 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 		},
 	}
 	if s.enableAuth && s.authService != nil {
-		middlewares = append(middlewares, AuthMiddleware(s.authService, s.tokenService))
+		middlewares = append(middlewares, AuthMiddleware(s.authService, s.tokenService, s.apiKeys))
 	}
 	middlewares = append(middlewares, RateLimitMiddleware(s.apiLimiter))
 	return middlewares
@@ -377,7 +443,7 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 // no-op pass-through when auth is disabled (system view).
 func (s *Server) authMiddlewareIfEnabled() func(http.Handler) http.Handler {
 	if s.enableAuth && s.authService != nil {
-		return AuthMiddleware(s.authService, s.tokenService)
+		return AuthMiddleware(s.authService, s.tokenService, s.apiKeys)
 	}
 	return func(next http.Handler) http.Handler { return next }
 }

@@ -42,6 +42,9 @@ type userDocument struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	OAuthProvider string    `json:"oauthProvider,omitempty"`
 	OAuthSubject  string    `json:"oauthSubject,omitempty"`
+	TOTPEnabled   bool      `json:"totpEnabled,omitempty"`
+	TOTPSecret    string    `json:"totpSecret,omitempty"`
+	BackupCodes   []string  `json:"backupCodes,omitempty"`
 }
 
 func (d userDocument) toUser() *models.User {
@@ -59,6 +62,9 @@ func (d userDocument) toUser() *models.User {
 		CreatedAt:     d.CreatedAt,
 		OAuthProvider: d.OAuthProvider,
 		OAuthSubject:  d.OAuthSubject,
+		TOTPEnabled:   d.TOTPEnabled,
+		TOTPSecret:    d.TOTPSecret,
+		BackupCodes:   d.BackupCodes,
 	}
 	u.Normalize(nil)
 	return u
@@ -79,6 +85,9 @@ func namedDoc(u *models.User) userDocument {
 		CreatedAt:     u.CreatedAt,
 		OAuthProvider: u.OAuthProvider,
 		OAuthSubject:  u.OAuthSubject,
+		TOTPEnabled:   u.TOTPEnabled,
+		TOTPSecret:    u.TOTPSecret,
+		BackupCodes:   u.BackupCodes,
 	}
 }
 

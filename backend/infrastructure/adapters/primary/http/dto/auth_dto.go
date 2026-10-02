@@ -14,6 +14,9 @@ type UserResponse struct {
 	IsAdmin   bool   `json:"isAdmin"`
 	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"createdAt,omitempty"`
+	// TOTPEnabled reports whether the account has two-factor authentication
+	// active (state only — secrets and backup codes never serialize).
+	TOTPEnabled bool `json:"totpEnabled,omitempty"`
 }
 
 type MeResponse struct {
@@ -42,6 +45,9 @@ type UserStatsResponse struct {
 type AuthInfoResponse struct {
 	SignupEnabled bool     `json:"signupEnabled"`
 	OAuth         []string `json:"oauth,omitempty"`
+	// TwoFactor reports whether the server offers TOTP enrollment, so
+	// clients can decide whether to render the 2FA settings UI.
+	TwoFactor bool `json:"twoFactor"`
 }
 
 // TokenResponse is the wire shape of a freshly issued access token.
@@ -74,11 +80,12 @@ func FromUser(u *models.User) UserResponse {
 		return UserResponse{}
 	}
 	return UserResponse{
-		Username:  strings.TrimSpace(u.Username),
-		Role:      u.Role,
-		IsAdmin:   u.IsAdmin,
-		Enabled:   u.Enabled,
-		CreatedAt: formatTime(u.CreatedAt),
+		Username:    strings.TrimSpace(u.Username),
+		Role:        u.Role,
+		IsAdmin:     u.IsAdmin,
+		Enabled:     u.Enabled,
+		CreatedAt:   formatTime(u.CreatedAt),
+		TOTPEnabled: u.TOTPEnabled,
 	}
 }
 

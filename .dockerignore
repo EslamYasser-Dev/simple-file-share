@@ -10,11 +10,7 @@ readme.md
 **/*_test.go
 **/coverage.out
 **/*.log
-node_modules/
-dist/
 build/
 certs/
-frontend/node_modules/
-frontend/dist/
 backend/coverage.out
 coverage.html

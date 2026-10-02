@@ -29,7 +29,11 @@ func NewShareService(
 }
 
 func (s *ShareService) CreateShare(ctx context.Context, req *filesharev1.CreateShareRequest) (*filesharev1.Share, error) {
-	share, err := s.create.Execute(authctx.UserFromContext(ctx), req.GetPath(), req.GetExpiresInSeconds())
+	// The proto surface predates share policies; gRPC clients get expiry
+	// only. Password/limit links are managed over HTTP.
+	share, err := s.create.Execute(authctx.UserFromContext(ctx), req.GetPath(), services.SharePolicy{
+		ExpiresInSeconds: req.GetExpiresInSeconds(),
+	})
 	if err != nil {
 		return nil, toStatus(err)
 	}

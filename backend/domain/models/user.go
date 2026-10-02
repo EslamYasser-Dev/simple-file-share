@@ -22,6 +22,16 @@ type User struct {
 	CreatedAt     time.Time
 	OAuthProvider string
 	OAuthSubject  string
+	// TOTPEnabled marks the account as fully enrolled in TOTP two-factor
+	// authentication (verified once during enrollment).
+	TOTPEnabled bool
+	// TOTPSecret is the base32 TOTP secret. It is set while enrollment is
+	// pending (TOTPEnabled still false) and kept while enabled. It is
+	// persisted in users.json (private metadata dir) and never serialized
+	// to API responses.
+	TOTPSecret string
+	// BackupCodes holds PBKDF2 hashes of unused recovery codes.
+	BackupCodes []string
 }
 
 // Normalize fills defaults for accounts created before RBAC fields existed.
