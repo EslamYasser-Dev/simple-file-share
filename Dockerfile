@@ -18,8 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /file-server ./cmd/server
 
 # =============================
-# RUNTIME STAGE (API only —
-# the UI is served by Vercel)
+# RUNTIME STAGE (API only)
 # =============================
 FROM alpine:3.19
 
@@ -42,8 +41,7 @@ ENV APP_ENV=production \
     ENABLE_TLS=false \
     ENABLE_AUTH=true \
     ENABLE_GRPC=true \
-    ENABLE_GRPC_TLS=true \
-    CORS_ORIGINS=https://simple-file-share-eight.vercel.app,https://shares-iota.vercel.app
+    ENABLE_GRPC_TLS=true
 
 EXPOSE 22010 50051
 

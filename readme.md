@@ -6,8 +6,8 @@
 A high-performance, secure file sharing application built with Go and React, structured as a hexagonal (ports & adapters) application.
 
 > **Repository split**: this repo is the **backend only** (Go API + gRPC + Docker image). The clients live in sibling repositories, each with its own CI/CD:
-> - `frontend` — React + Vite SPA → Vercel
-> - `landing` — Next.js marketing site → Vercel
+> - `frontend` — React + Vite SPA
+> - `landing` — Next.js marketing site
 > - `mobile` — Flutter app → analyze/test CI
 
 ## 🌟 Overview
@@ -86,7 +86,7 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Framework**: Next.js App Router with static export (`output: "export"`)
 - **Language**: TypeScript
 - **Internationalization**: English/Arabic with EN/AR route groups and RTL
-- **Deploy**: static export (`output: "export"`) — the `landing` repo's workflow uploads `out/` (Vercel)
+- **Deploy**: static export (`output: "export"`) — the `landing` repo's workflow uploads `out/`
 
 ### Mobile
 - **Framework**: Flutter with Riverpod state management
@@ -580,7 +580,7 @@ graph LR
 ├── .github/workflows/
 │   ├── ci.yml                        # CI checks: Go backend + Docker image smoke test
 │   └── release.yml                   # Image release (GHCR) + Railway deploy
-├── dockerfile                        # Multi-stage build (Go → Alpine runtime, API only)
+├── Dockerfile                        # Multi-stage build (Go → Alpine runtime, API only)
 ├── docker-compose.yml
 └── Makefile                          # Dev targets: run, test, coverage, containers
 ```
@@ -681,7 +681,7 @@ supports username/password JWT login only.
 Two deployment shapes are supported:
 
 - **API container** — the Docker image from this repository is **backend-only**: it runs the Go API (REST + gRPC) and nothing else. Any Docker-capable host (Railway, Fly.io, Koyeb, Hugging Face Spaces, a VPS…) can run it with one container (fastest: Railway below, then Option A/B).
-- **UI on a static host** — the React SPA (`frontend` repo) and the landing site (`landing` repo) deploy to Vercel; the browser reaches the API through the `/api/*` rewrite to the Railway origin. A static host cannot run the Go backend (uploads, auth, storage).
+- **UI on a static host** — the React SPA (`frontend` repo) and the landing site (`landing` repo) deploy to a static host; the browser reaches the API through the `/api/*` rewrite to the Railway origin. A static host cannot run the Go backend (uploads, auth, storage).
 
 ### Environment variables
 
@@ -690,10 +690,12 @@ Two deployment shapes are supported:
 | `APP_ENV` | `development` | `production` enables auth; `ENABLE_AUTH`/`ENABLE_TLS` also gate features |
 | `PORT` | `22010` (dev `3000`) | HTTP listen port |
 | `ROOT_DIR` / `FILE_SHARE_ROOT` | `.file-share-data` (dev) / `/data` (prod) | Dedicated storage directory owned by the server. Created with owner-only permissions (`0700`); unsafe values (filesystem root, working directory, home, source tree, or symlink) are rejected at startup |
-| `STATIC_DIR` | `""` (off) | Optional directory of a prebuilt SPA (index.html + assets) to serve from the same origin. Unset in the split deploy — the UI lives on Vercel — so the server serves only `/api/*`, `/health`, and the swagger fallback |
+| `STATIC_DIR` | `""` (off) | Optional directory of a prebuilt SPA (index.html + assets) to serve from the same origin. Unset in the split deploy — the UI is hosted separately — so the server serves only `/api/*`, `/health`, and the swagger fallback |
+| `CORS_ORIGINS` | `""` (same-origin only) | Comma-separated browser origins allowed to call this API cross-origin (e.g. `https://my-ui.example.com`). The request's own host is always allowed; with no value the server sends no `Access-Control-Allow-Origin` to foreign origins, so a separately hosted UI **must** set this |
 | `ADMIN_USERNAME` / `FILE_SHARE_USERNAME` | `admin` | Bootstrap admin username, seeded only when no accounts exist |
 | `ADMIN_PASSWORD` / `FILE_SHARE_PASSWORD` | `admin` | Bootstrap admin password. In production the server refuses to first-boot seed a known default value (`changeme`, `admin`, …) |
 | `JWT_SECRET` | `change-me-in-production` (dev only) | HMAC key for access tokens. **Required in production**: must be a random value of at least 32 characters (e.g. `openssl rand -hex 32`), otherwise the server refuses to start |
+| `JWT_TTL_SECONDS` | `3600` | Access-token lifetime in seconds. Non-numeric or non-positive values fall back to the 1-hour default |
 | `ENABLE_SIGNUP` | `true` | Allow public self-service registration |
 | `MAX_UPLOAD_BYTES` | `unlimited` | Maximum upload size. `unlimited`/`0` (default) caps nothing; set e.g. `2GB`, `500MB`, or a raw byte count to enforce a limit |
 | `ENABLE_AUTH` | `true` (prod) / `false` (dev) | Toggle Basic Auth |
@@ -704,12 +706,17 @@ Two deployment shapes are supported:
 | `ENABLE_METRICS` | `true` | Serve `GET /metrics` (Prometheus text). Always admin- or `METRICS_TOKEN`-guarded |
 | `METRICS_TOKEN` | `""` (off) | Optional static bearer token accepted for `GET /metrics`; admin JWT works regardless |
 | `ENABLE_PPROF` | `false` | Serve `net/http/pprof` on a loopback-only side listener (`127.0.0.1:6060`) |
+| `ENABLE_SWAGGER` | on outside `production` | `true`/`false` force the Swagger UI and spec on or off; unset serves them unless `APP_ENV=production` |
 | `INDEX_SNAPSHOT` | `true` | Persist the full-text index to `ROOT_DIR/.file-share/index.snapshot` (atomic, CRC-checked). Startup then only re-extracts files whose size/mtime changed; corrupt/missing snapshots fall back to a full rebuild automatically |
 | `AUDIT_LOG` | `true` | Append security events (logins, admin changes, share lifecycle) to `ROOT_DIR/.file-share/audit.jsonl` and expose `GET /api/admin/audit` |
 | `AUDIT_MAX_BYTES` | `8MB` | Rotation size of the active audit file (human sizes accepted) |
 | `AUDIT_KEEP` | `3` | Number of rotated audit generations retained (1–10) |
 | `ENABLE_2FA` | `true` | Expose the TOTP enrollment/verify/disable routes. Login enforcement follows the account state either way (already-enrolled accounts keep challenging even if the routes are hidden) |
 | `ENABLE_API_KEYS` | `true` | Serve the API key endpoints and accept `sfs_…` bearer credentials. `false` hides the routes and stops every existing key from authenticating |
+| `OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET` | `""` (off) | Enable GitHub sign-in. Both must be set together, otherwise the provider is never registered |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | `""` (off) | Enable Google sign-in. Both must be set together, otherwise the provider is never registered |
+| `OAUTH_REDIRECT_BASE` | — | Absolute `http(s)` origin (no path, query, or fragment) that the OAuth callback returns to. **Required in production** whenever OAuth is enabled |
+| `OAUTH_SPA_BASE` | API base | Optional origin to hand the browser back to after the OAuth callback instead of the API origin — use it when the SPA is hosted separately |
 | `WEBHOOK_URLS` | `""` (off) | Comma-separated `http(s)` endpoints that receive copies of application events (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `restore`, `quota`, `download`, `login`). Non-HTTP(S) or malformed entries are dropped at startup |
 | `WEBHOOK_SECRET` | `""` (unsigned) | HMAC-SHA256 key for webhook deliveries; payloads carry `X-Webhook-Signature: sha256=<hex>` so receivers can verify integrity |
 | `VERSION_KEEP` | `0` (keep all) | Historical snapshots retained per file; oldest are pruned first |
@@ -727,13 +734,17 @@ Two deployment shapes are supported:
 
 ### Railway (API, zero config)
 
-Create a Railway service from this repo — `railway.json` forces the Dockerfile
-build (the file is lowercase `dockerfile`), health-checks `/health`, and
-restarts on failure. Set variables **`JWT_SECRET`** (`openssl rand -hex 32`) and
+Create a Railway service from this repo — `railway.json` forces the `Dockerfile`
+build, health-checks `/health`, and restarts on failure. Set variables **`JWT_SECRET`** (`openssl rand -hex 32`) and
 **`ADMIN_PASSWORD`**; leave `ROOT_DIR` unset so the image default `/data` applies
 (add a Railway volume mounted at `/data` for persistence; note Railway volumes
 are root-owned while the server runs as `nobody`). Railway injects `PORT`,
 which the server honors automatically.
+
+**Cross-origin UI:** the image sets no `CORS_ORIGINS`, so the API accepts
+same-origin browser calls only. If a separately hosted UI calls this API, set
+`CORS_ORIGINS` to its origin (Railway → service → *Variables*), for example
+`CORS_ORIGINS=https://my-ui.example.com`.
 
 **Mobile gRPC (TCP proxy):** Railway's edge terminates TLS as HTTP/1.1 toward
 the origin, so same-port gRPC does not survive it. Expose gRPC through a raw
@@ -748,18 +759,16 @@ TCP proxy instead:
    `GET /api/grpc/cert` automatically. The certificate lives under
    `ROOT_DIR/.file-share/tls/` and survives redeploys (keep the volume).
 
-### Vercel UI + hosted API (split)
+### Separately hosted UI + API (split)
 
-The `frontend` and `landing` repositories each carry a `vercel.json` that
+The `frontend` and `landing` repositories each carry a static-host config that
 rewrites `/api/*` to the Railway origin (currently
-`https://shares.up.railway.app`). Import each repo into Vercel (*Add New →
-Project*), or let its GitHub Actions deploy workflow push prebuilt output once
-`VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` secrets are set.
+`https://shares.up.railway.app`), so the browser reaches this API cross-origin.
 
 ### Option A — Any Docker host
 
 ```bash
-# Build the image (API only — the UI is served by Vercel)
+# Build the image (API only)
 docker build -t simple-file-share .
 
 # Run it (named volume inherits the image's /data ownership)
@@ -891,8 +900,8 @@ Each repository uses GitHub Actions for continuous integration and delivery.
 
 | Repo | CI | Deploy |
 | --- | --- | --- |
-| `frontend` | `yarn install --immutable`, `tsc`, ESLint, Vite build (`dist/` artifact) | `.github/workflows/deploy.yml` → Vercel prebuilt deploy (needs `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`) |
-| `landing` | `yarn install --immutable`, ESLint, `tsc`, static export (`out/` artifact) | same Vercel deploy workflow |
+| `frontend` | `yarn install --immutable`, `tsc`, ESLint, Vite build (`dist/` artifact) | static host (prebuilt `dist/` upload) |
+| `landing` | `yarn install --immutable`, ESLint, `tsc`, static export (`out/` artifact) | static host (prebuilt `out/` upload) |
 | `mobile` | `flutter pub get`, `flutter analyze`, `flutter test` | — (add a build workflow when store distribution is needed) |
 
 Dependabot is configured in every repository (Go modules / npm / pub /

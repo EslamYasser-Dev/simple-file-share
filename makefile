@@ -3,8 +3,8 @@
 # ==============================================================================
 #
 # This repository is backend-only. The web clients live in sibling repos:
-#   frontend/  React + Vite SPA      → Vercel
-#   landing/   Next.js landing site  → Vercel
+#   frontend/  React + Vite SPA
+#   landing/   Next.js landing site
 #   mobile/    Flutter app           → stores
 # ==============================================================================
 
@@ -143,7 +143,7 @@ run-prod: build-local ## Run the server in production mode (API only)
 # ==============================================================================
 .PHONY: podman-build
 podman-build: ## Build the container image with Podman
-	@podman build -f dockerfile -t $(IMAGE_NAME):$(IMAGE_TAG) -t $(IMAGE_NAME):latest .
+	@podman build -f Dockerfile -t $(IMAGE_NAME):$(IMAGE_TAG) -t $(IMAGE_NAME):latest .
 
 .PHONY: podman-up
 podman-up: ## Start services with Podman Compose

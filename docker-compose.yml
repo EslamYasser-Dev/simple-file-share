@@ -2,7 +2,7 @@ services:
   file-server:
     build:
       context: .
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     container_name: go-file-server
     ports:
       - "22010:22010"

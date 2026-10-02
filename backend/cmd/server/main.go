@@ -536,7 +536,7 @@ func main() {
 
 	// Serve a prebuilt SPA from the same origin only when STATIC_DIR points at
 	// a directory containing index.html + assets. Unset by default: the UI is
-	// hosted separately (Vercel) and the server mounts the API alone.
+	// hosted separately, so the server mounts the API alone.
 	server.SetStaticFileServer(os.Getenv("STATIC_DIR"))
 
 	if err := server.Start(); err != nil {
