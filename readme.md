@@ -582,7 +582,7 @@ graph LR
 │   └── release.yml                   # Image release (GHCR) + Railway deploy
 ├── Dockerfile                        # Multi-stage build (Go → Alpine runtime, API only)
 ├── docker-compose.yml
-└── Makefile                          # Dev targets: run, test, coverage, containers
+└── makefile                          # Dev targets: run, test, coverage, containers
 ```
 
 > The `frontend/`, `landing/` (website), and `mobile/` directories moved to
@@ -841,7 +841,7 @@ go test ./...              # unit + adapter tests
 go test -race ./...        # with the race detector (what CI runs)
 ```
 
-Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `go tool cover`). The suite sits at roughly **47%** today, with the domain policy, auth, gRPC, and handler packages much higher.
+Coverage is enforced in CI with a **40% floor** (override with `COVER_MIN`; generate an HTML report with `make coverage`, which writes `coverage.html`). The suite sits at roughly **54%** today, with the domain policy, auth, gRPC, and handler packages much higher.
 
 ### Clients
 The clients live in sibling repositories with their own CI:
@@ -853,7 +853,7 @@ cd ../mobile   && flutter analyze && flutter test
 
 ### Full suite
 ```bash
-cd backend && go vet ./... && go test -race ./... && cd .. && make ci
+make ci     # exactly what GitHub Actions runs (see Make targets below)
 ```
 
 ## 📊 Code Quality
@@ -873,7 +873,7 @@ Contributions are welcome — open an issue or submit a pull request.
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite (`cd backend && go test -race ./...` or `make ci`) or the Make targets above
+5. Run the test suite (`make ci`) or the Make targets above
 6. Submit a pull request
 
 ## 🔁 CI/CD
@@ -883,7 +883,7 @@ Each repository uses GitHub Actions for continuous integration and delivery.
 ### This repository (backend)
 
 - **CI Workflow**: `.github/workflows/ci.yml`
-  - **Backend** (Go): module tidiness check, `gofmt`, `go vet`, build, race-enabled tests with a 40% coverage floor, and an HTML coverage report artifact
+  - **Backend** (Go): runs `make ci` from the repository root — module tidiness check, `gofmt`, `go vet`, compile check, race-enabled tests, HTML coverage report, and a 40% coverage floor. The makefile is the single source of truth, so the workflow contains no duplicated shell logic
   - **Docker**: builds the backend-only production image, then smoke-tests it in a fresh container (health check + login) before passing
   - Runs on push to `master`/`main`/`enhancements` and on pull requests
 
@@ -909,9 +909,18 @@ Docker / GitHub Actions as appropriate).
 
 ### Make targets
 
+The makefile is the single source of truth for CI: `.github/workflows/ci.yml`
+runs `make ci` verbatim, so a green local run means a green build.
+
 ```bash
-make run    # start the backend with dev defaults (see Environment variables above)
-make ci     # fmt-check + vet + tests (what CI runs)
+make help             # list every target with a description
+make run              # start the backend with dev defaults (see Environment variables above)
+make lint             # fmt-check + vet
+make coverage         # tests + HTML report (coverage.html)
+make coverage-check   # tests + enforce the COVER_MIN floor (default 40%)
+make ci               # exactly what GitHub Actions runs:
+                      #   fmt-check, tidy-check, vet, build-check,
+                      #   test-race, coverage-html, coverage-floor
 ```
 
 ### How to cut a release

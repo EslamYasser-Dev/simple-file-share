@@ -73,6 +73,11 @@ fmt-check: ## Fail if Go sources are not gofmt-clean
 tidy: ## Tidy Go module files
 	@cd $(BACKEND_DIR) && $(GO) mod tidy
 
+.PHONY: tidy-check
+tidy-check: ## Fail if go.mod/go.sum are not tidy
+	@echo "📦 Checking module tidiness..."
+	@cd $(BACKEND_DIR) && $(GO) mod tidy && git diff --exit-code -- go.mod go.sum
+
 .PHONY: vet
 vet: ## Run go vet
 	@echo "🔬 Running go vet..."
@@ -102,6 +107,11 @@ build-local: ## Build the server for the host platform
 	@cd $(BACKEND_DIR) && $(GO) build -ldflags="$(LDFLAGS)" -o ../$(BIN_NAME) $(SERVER_PKG)
 	@echo "✅ Built $(BIN_NAME)"
 
+.PHONY: build-check
+build-check: ## Compile every package without emitting a binary
+	@echo "🔨 Checking compilation..."
+	@cd $(BACKEND_DIR) && $(GO) build ./...
+
 # ==============================================================================
 # Test & coverage
 # ==============================================================================
@@ -114,16 +124,26 @@ test-backend: ## Run backend tests with coverage
 	@cd $(BACKEND_DIR) && $(GO) test -v ./... -coverprofile=coverage.out -covermode=count
 	@cd $(BACKEND_DIR) && $(GO) tool cover -func=coverage.out | grep "total:"
 
-.PHONY: coverage
-coverage: test-backend ## Generate the HTML coverage report
+.PHONY: test-race
+test-race: ## Run backend tests with the race detector (what CI uses)
+	@echo "🧪 Running backend tests (race)..."
+	@cd $(BACKEND_DIR) && $(GO) test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+.PHONY: coverage-html
+coverage-html: ## Render coverage.html from the existing coverage.out
 	@cd $(BACKEND_DIR) && $(GO) tool cover -html=coverage.out -o ../coverage.html
 	@echo "✅ Coverage report: coverage.html"
 
-.PHONY: coverage-check
-coverage-check: ## Enforce a minimum backend coverage percentage
-	@cd $(BACKEND_DIR) && $(GO) test ./... -coverprofile=coverage.out -covermode=count > /dev/null
+.PHONY: coverage
+coverage: test-backend coverage-html ## Run tests and generate the HTML coverage report
+
+.PHONY: coverage-floor
+coverage-floor: ## Fail if the existing coverage.out is below COVER_MIN
 	@cd $(BACKEND_DIR) && $(GO) tool cover -func=coverage.out | grep "total:" | \
 		awk -v min=$(COVER_MIN) '{ gsub(/%/,"",$$3); if ($$3+0 < min) { printf "❌ Coverage %s%% < %s%%\n", $$3, min; exit 1 } else { printf "✅ Coverage %s%% >= %s%%\n", $$3, min } }'
+
+.PHONY: coverage-check
+coverage-check: test-backend coverage-floor ## Run tests and enforce the minimum coverage percentage
 
 # ==============================================================================
 # Run
@@ -170,4 +190,4 @@ clean: ## Remove build and coverage artifacts
 # CI
 # ==============================================================================
 .PHONY: ci
-ci: fmt-check vet test-backend ## Full CI pipeline
+ci: fmt-check tidy-check vet build-check test-race coverage-html coverage-floor ## Full CI pipeline — this is what GitHub Actions runs

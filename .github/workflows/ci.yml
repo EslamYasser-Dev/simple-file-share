@@ -18,9 +18,6 @@ jobs:
     name: Backend (Go)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,33 +28,8 @@ jobs:
           go-version: '1.25.x'
           cache-dependency-path: backend/go.sum
 
-      - name: Verify modules are tidy
-        run: |
-          go mod download
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-
-      - name: Format check
-        run: test -z "$(gofmt -l .)"
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test (race + coverage)
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-
-      - name: Enforce coverage floor
-        run: |
-          total=$(go tool cover -func=coverage.out | awk '/total:/ {gsub(/%/,"",$3); print $3}')
-          echo "Total coverage: ${total}%"
-          awk -v t="$total" 'BEGIN { if (t+0 < 40) exit 1 }'
-
-      - name: Coverage report (HTML)
-        if: always()
-        run: go tool cover -html=coverage.out -o coverage.html
+      - name: CI pipeline
+        run: make ci
 
       - name: Upload backend coverage
         if: always()
@@ -66,7 +38,7 @@ jobs:
           name: backend-coverage
           path: |
             backend/coverage.out
-            backend/coverage.html
+            coverage.html
           if-no-files-found: ignore
 
   docker:
