@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	"io"
 	"strings"
 	"testing"
@@ -38,10 +39,10 @@ func newShareFixture(t *testing.T) *shareFixture {
 		fileRepo:  fileRepo,
 		shareRepo: shareRepo,
 		scoper:    scoper,
-		create:    NewCreateShareService(fileRepo, shareRepo, scoper),
+		create:    NewCreateShareService(fileRepo, shareRepo, scoper, auth.NewPBKDF2Hasher()),
 		list:      NewListSharesService(shareRepo, scoper, NewRoleCatalog(nil)),
 		revoke:    NewRevokeShareService(shareRepo, scoper, NewRoleCatalog(nil)),
-		resolve:   NewResolveShareService(shareRepo, scoper, downloadService),
+		resolve:   NewResolveShareService(shareRepo, scoper, downloadService, auth.NewPBKDF2Hasher()),
 	}
 }
 
@@ -55,13 +56,13 @@ func TestCreateShareRejectsMissingPathAndBadValidity(t *testing.T) {
 	f := newShareFixture(t)
 	alice := &models.User{Username: "alice"}
 
-	if _, err := f.create.Execute(alice, "/missing.txt", 60); err == nil {
+	if _, err := f.create.Execute(alice, "/missing.txt", SharePolicy{ExpiresInSeconds: 60}); err == nil {
 		t.Fatal("expected NotFound for missing path")
 	}
-	if _, err := f.create.Execute(alice, "notes.txt", -1); err == nil {
+	if _, err := f.create.Execute(alice, "notes.txt", SharePolicy{ExpiresInSeconds: -1}); err == nil {
 		t.Fatal("expected validation error for negative validity")
 	}
-	if _, err := f.create.Execute(alice, "notes.txt", 400*24*3600); err == nil {
+	if _, err := f.create.Execute(alice, "notes.txt", SharePolicy{ExpiresInSeconds: 400 * 24 * 3600}); err == nil {
 		t.Fatal("expected validation error for excessive validity")
 	}
 }
@@ -77,7 +78,7 @@ func TestShareLifecycleForUser(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	share, err := f.create.Execute(alice, "/notes.txt", 3600)
+	share, err := f.create.Execute(alice, "/notes.txt", SharePolicy{ExpiresInSeconds: 3600})
 	if err != nil {
 		t.Fatalf("create share: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestShareLifecycleForUser(t *testing.T) {
 		t.Errorf("bob sees %d shares, want 0", len(bobShares))
 	}
 
-	download, err := f.resolve.Execute(share.Token)
+	download, err := f.resolve.Execute(share.Token, "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestShareLifecycleForUser(t *testing.T) {
 	if err := f.revoke.Execute(alice, share.Token); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if _, err := f.resolve.Execute(share.Token); err == nil {
+	if _, err := f.resolve.Execute(share.Token, ""); err == nil {
 		t.Fatal("expected error resolving a revoked share")
 	}
 }
@@ -133,7 +134,7 @@ func TestCreateShareNeverExpires(t *testing.T) {
 	if _, err := f.fileRepo.WriteFile("notes.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	share, err := f.create.Execute(nil, "/notes.txt", 0)
+	share, err := f.create.Execute(nil, "/notes.txt", SharePolicy{ExpiresInSeconds: 0})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -151,14 +152,14 @@ func TestResolveShareRejectsExpiredLink(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 	f.create.now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	share, err := f.create.Execute(alice, "/notes.txt", 3600)
+	share, err := f.create.Execute(alice, "/notes.txt", SharePolicy{ExpiresInSeconds: 3600})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	f.create.now = time.Now
 
 	var expired *domainerrors.ShareExpiredError
-	if _, err := f.resolve.Execute(share.Token); !errors.As(err, &expired) {
+	if _, err := f.resolve.Execute(share.Token, ""); !errors.As(err, &expired) {
 		t.Fatalf("resolve = %v, want ShareExpiredError", err)
 	}
 }
@@ -171,7 +172,7 @@ func TestRevokeShareEnforcesOwnership(t *testing.T) {
 	if _, err := f.fileRepo.WriteFile("users/alice/notes.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	share, err := f.create.Execute(alice, "/notes.txt", 60)
+	share, err := f.create.Execute(alice, "/notes.txt", SharePolicy{ExpiresInSeconds: 60})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestResolveShareServesDeletedFileGone(t *testing.T) {
 	if _, err := f.fileRepo.WriteFile("notes.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	share, err := f.create.Execute(nil, "/notes.txt", 0)
+	share, err := f.create.Execute(nil, "/notes.txt", SharePolicy{ExpiresInSeconds: 0})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestResolveShareServesDeletedFileGone(t *testing.T) {
 	}
 
 	var notFound *domainerrors.NotFoundError
-	if _, err := f.resolve.Execute(share.Token); !errors.As(err, &notFound) {
+	if _, err := f.resolve.Execute(share.Token, ""); !errors.As(err, &notFound) {
 		t.Fatalf("resolve = %v, want NotFoundError", err)
 	}
 }
@@ -217,7 +218,7 @@ func TestShareCreatedByAdminOfAnotherUsersHome(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	share, err := f.create.Execute(admin, "/users/alice/notes.txt", 0)
+	share, err := f.create.Execute(admin, "/users/alice/notes.txt", SharePolicy{ExpiresInSeconds: 0})
 	if err != nil {
 		t.Fatalf("admin create: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestShareCreatedByAdminOfAnotherUsersHome(t *testing.T) {
 		t.Fatal("expected the admin flag to be persisted on the share")
 	}
 
-	download, err := f.resolve.Execute(share.Token)
+	download, err := f.resolve.Execute(share.Token, "")
 	if err != nil {
 		t.Fatalf("admin share resolve = %v, want nil", err)
 	}
@@ -242,11 +243,142 @@ func TestShareCreatedByAdminOfAnotherUsersHome(t *testing.T) {
 	if _, err := f.fileRepo.WriteFile("users/alice/own.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	regular, err := f.create.Execute(alice, "/own.txt", 0)
+	regular, err := f.create.Execute(alice, "/own.txt", SharePolicy{ExpiresInSeconds: 0})
 	if err != nil {
 		t.Fatalf("regular create: %v", err)
 	}
 	if regular.IsAdmin {
 		t.Fatal("regular-user share must not carry the admin flag")
+	}
+}
+
+// TestSharePasswordPolicy covers the password-protected link lifecycle:
+// creation stores only a hash, and serving demands the right password.
+func TestSharePasswordPolicy(t *testing.T) {
+	f := newShareFixture(t)
+	alice := &models.User{Username: "alice"}
+	if _, err := f.fileRepo.WriteFile("users/alice/secret.txt", io.NopCloser(strings.NewReader("top"))); err != nil {
+		t.Fatal(err)
+	}
+
+	share, err := f.create.Execute(alice, "/secret.txt", SharePolicy{Password: "hunter2"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !share.PasswordProtected() {
+		t.Fatal("share not marked protected")
+	}
+	if share.PasswordHash == "" || strings.Contains(share.PasswordHash, "hunter2") {
+		t.Fatalf("password hash leaks plaintext: %q", share.PasswordHash)
+	}
+
+	// Missing password.
+	_, err = f.resolve.Execute(share.Token, "")
+	var pwErr *domainerrors.SharePasswordError
+	if !errors.As(err, &pwErr) || !pwErr.Missing {
+		t.Fatalf("missing password err = %v, want SharePasswordError{Missing}", err)
+	}
+	// Wrong password.
+	_, err = f.resolve.Execute(share.Token, "wrong")
+	if !errors.As(err, &pwErr) || pwErr.Missing {
+		t.Fatalf("wrong password err = %v, want SharePasswordError{not missing}", err)
+	}
+	// Correct password serves.
+	download, err := f.resolve.Execute(share.Token, "hunter2")
+	if err != nil {
+		t.Fatalf("correct password: %v", err)
+	}
+	body, _ := io.ReadAll(download.Stream)
+	download.Stream.Close()
+	if string(body) != "top" {
+		t.Fatalf("body = %q", body)
+	}
+
+	// A public link ignores any presented password.
+	pub, err := f.create.Execute(alice, "/secret.txt", SharePolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.resolve.Execute(pub.Token, "anything"); err != nil {
+		t.Fatalf("public link with stray password: %v", err)
+	}
+}
+
+// TestShareMaxDownloadsPolicy covers the download budget: atomic consume,
+// exhaustion, and no charge for unservable paths.
+func TestShareMaxDownloadsPolicy(t *testing.T) {
+	f := newShareFixture(t)
+	alice := &models.User{Username: "alice"}
+	if _, err := f.fileRepo.WriteFile("users/alice/limited.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
+		t.Fatal(err)
+	}
+
+	share, err := f.create.Execute(alice, "/limited.txt", SharePolicy{MaxDownloads: 2})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !share.Limited() || share.MaxDownloads != 2 {
+		t.Fatalf("share = %+v", share)
+	}
+	for i := 0; i < 2; i++ {
+		download, err := f.resolve.Execute(share.Token, "")
+		if err != nil {
+			t.Fatalf("download %d: %v", i+1, err)
+		}
+		io.Copy(io.Discard, download.Stream)
+		download.Stream.Close()
+	}
+	if _, err := f.resolve.Execute(share.Token, ""); !errors.Is(err, domainerrors.ErrShareLimitReached) {
+		t.Fatalf("third download err = %v, want ErrShareLimitReached", err)
+	}
+	stored, err := f.shareRepo.FindByToken(share.Token)
+	if err != nil || stored.Downloads != 2 {
+		t.Fatalf("stored downloads = %d err=%v, want 2", stored.Downloads, err)
+	}
+
+	// Unlimited links never touch the counter and never exhaust.
+	open, err := f.create.Execute(alice, "/limited.txt", SharePolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		download, err := f.resolve.Execute(open.Token, "")
+		if err != nil {
+			t.Fatalf("unlimited %d: %v", i, err)
+		}
+		io.Copy(io.Discard, download.Stream)
+		download.Stream.Close()
+	}
+	stored, _ = f.shareRepo.FindByToken(open.Token)
+	if stored.Downloads != 0 {
+		t.Fatalf("unlimited link consumed budget: %d", stored.Downloads)
+	}
+
+	// A deleted target 404s without burning the budget.
+	if err := f.fileRepo.DeletePath("users/alice/limited.txt"); err != nil {
+		t.Fatal(err)
+	}
+	oneShot, err := f.create.Execute(alice, "/gone.txt", SharePolicy{MaxDownloads: 1})
+	if err == nil {
+		// The file was deleted; creating against it must fail (path missing).
+		t.Fatalf("expected create on deleted path to fail, got share %v", oneShot)
+	}
+}
+
+// TestSharePolicyValidation bounds the policy inputs.
+func TestSharePolicyValidation(t *testing.T) {
+	f := newShareFixture(t)
+	alice := &models.User{Username: "alice"}
+	if _, err := f.fileRepo.WriteFile("users/alice/a.txt", io.NopCloser(strings.NewReader("x"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.create.Execute(alice, "/a.txt", SharePolicy{MaxDownloads: -1}); err == nil {
+		t.Fatal("negative maxDownloads must fail")
+	}
+	if _, err := f.create.Execute(alice, "/a.txt", SharePolicy{Password: strings.Repeat("p", 257)}); err == nil {
+		t.Fatal("oversized password must fail")
+	}
+	if _, err := f.create.Execute(alice, "/a.txt", SharePolicy{Password: strings.Repeat("p", 256)}); err != nil {
+		t.Fatalf("256-char password must be accepted: %v", err)
 	}
 }

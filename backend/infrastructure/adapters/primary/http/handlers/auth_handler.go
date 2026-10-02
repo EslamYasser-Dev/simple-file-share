@@ -11,11 +11,15 @@ import (
 // RegisterHandler creates a new account (public endpoint).
 type RegisterHandler struct {
 	registerService *services.RegisterUserService
+	audit           *services.AuditService
 }
 
 func NewRegisterHandler(registerService *services.RegisterUserService) *RegisterHandler {
 	return &RegisterHandler{registerService: registerService}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *RegisterHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -35,6 +39,7 @@ func (h *RegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
+	h.audit.Record(services.AuditUserRegister, user.Username, clientIP(r), user.Username, "")
 
 	respondJSON(w, http.StatusCreated, dto.FromUser(user))
 }
@@ -66,18 +71,26 @@ func (h *MeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type AuthInfoHandler struct {
 	signupEnabled bool
 	oauth         []string
+	twoFactor     bool
 }
 
 func NewAuthInfoHandler(signupEnabled bool, oauthProviders []string) *AuthInfoHandler {
 	return &AuthInfoHandler{signupEnabled: signupEnabled, oauth: oauthProviders}
 }
 
+// SetTwoFactor reports whether TOTP enrollment routes are served.
+func (h *AuthInfoHandler) SetTwoFactor(enabled bool) { h.twoFactor = enabled }
+
 func (h *AuthInfoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	respondJSON(w, http.StatusOK, dto.AuthInfoResponse{SignupEnabled: h.signupEnabled, OAuth: h.oauth})
+	respondJSON(w, http.StatusOK, dto.AuthInfoResponse{
+		SignupEnabled: h.signupEnabled,
+		OAuth:         h.oauth,
+		TwoFactor:     h.twoFactor,
+	})
 }
 
 // AdminUsersHandler lists accounts with storage usage. The authorization gate
@@ -108,11 +121,15 @@ func (h *AdminUsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // (system view only) lives in UpdateUserQuotaService.
 type AdminQuotaHandler struct {
 	quotaService *services.UpdateUserQuotaService
+	audit        *services.AuditService
 }
 
 func NewAdminQuotaHandler(quotaService *services.UpdateUserQuotaService) *AdminQuotaHandler {
 	return &AdminQuotaHandler{quotaService: quotaService}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *AdminQuotaHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *AdminQuotaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
@@ -137,5 +154,6 @@ func (h *AdminQuotaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
+	h.audit.Record(services.AuditUserQuota, actorName(r), clientIP(r), username, "")
 	respondJSON(w, http.StatusOK, dto.FromUserStatsSingle(*stats))
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/events"
+	"github.com/EslamYasser-Dev/simple-file-share/domain/ports"
 )
 
 const sseHeartbeat = 15 * time.Second
@@ -16,10 +17,16 @@ const sseHeartbeat = 15 * time.Second
 // EventSource cannot set headers, so the cookie path is the browser one.
 type EventsHandler struct {
 	bus *events.Bus
+	rec ports.MetricsRecorder
 }
 
 func NewEventsHandler(bus *events.Bus) *EventsHandler {
 	return &EventsHandler{bus: bus}
+}
+
+// SetMetricsRecorder enables the live-subscriber gauge for this handler.
+func (h *EventsHandler) SetMetricsRecorder(rec ports.MetricsRecorder) {
+	h.rec = rec
 }
 
 func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +54,10 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	subscriber := currentUser(r)
 	ch, stop := h.bus.Subscribe(r.Context())
 	defer stop()
+	if h.rec != nil {
+		h.rec.AddActiveStreams(1)
+		defer h.rec.AddActiveStreams(-1)
+	}
 
 	heartbeat := time.NewTicker(sseHeartbeat)
 	defer heartbeat.Stop()

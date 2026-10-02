@@ -22,8 +22,13 @@ func toStatus(err error) error {
 	var notDir *domainerrors.NotDirectoryError
 	var shareNotFound *domainerrors.ShareNotFoundError
 	var shareExpired *domainerrors.ShareExpiredError
+	var sharePassword *domainerrors.SharePasswordError
 
 	switch {
+	case errors.Is(err, domainerrors.ErrTwoFactorRequired):
+		// Mobile has no OTP UI yet — point clients at the HTTP API instead
+		// of failing with generic unauthenticated.
+		return status.Error(codes.FailedPrecondition, "two-factor required: complete login via the HTTP API")
 	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domainerrors.ErrInvalidCredentials):
@@ -43,6 +48,10 @@ func toStatus(err error) error {
 	case errors.As(err, &forbidden):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.As(err, &shareExpired):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, domainerrors.ErrShareLimitReached):
+		return status.Error(codes.ResourceExhausted, "share download limit reached")
+	case errors.As(err, &sharePassword):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.As(err, &shareNotFound):
 		return status.Error(codes.NotFound, err.Error())

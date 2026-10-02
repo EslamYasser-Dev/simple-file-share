@@ -12,17 +12,26 @@ type CreateShareRequest struct {
 	Path string `json:"path"`
 	// ExpiresInSeconds is the link validity in seconds. 0 means no expiry.
 	ExpiresInSeconds int64 `json:"expiresInSeconds"`
+	// Password optionally protects the link; it is sent once and stored
+	// only as a hash.
+	Password string `json:"password"`
+	// MaxDownloads caps how often the link can be served. 0 = unlimited.
+	MaxDownloads int `json:"maxDownloads"`
 }
 
 // ShareItem is a share link as seen by the API. ExpiresAt is empty when the
-// link never expires.
+// link never expires. The password itself is never echoed — only whether one
+// is set.
 type ShareItem struct {
-	Token     string `json:"token"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Owner     string `json:"owner"`
-	CreatedAt string `json:"createdAt"`
-	ExpiresAt string `json:"expiresAt"`
+	Token             string `json:"token"`
+	Path              string `json:"path"`
+	Name              string `json:"name"`
+	Owner             string `json:"owner"`
+	CreatedAt         string `json:"createdAt"`
+	ExpiresAt         string `json:"expiresAt"`
+	PasswordProtected bool   `json:"passwordProtected"`
+	MaxDownloads      int    `json:"maxDownloads,omitempty"`
+	Downloads         int    `json:"downloads"`
 }
 
 func FromShare(s *models.Share) ShareItem {
@@ -35,12 +44,15 @@ func FromShare(s *models.Share) ShareItem {
 		expires = s.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 	return ShareItem{
-		Token:     s.Token,
-		Path:      s.Path,
-		Name:      filepath.Base(s.Path),
-		Owner:     s.Owner,
-		CreatedAt: created,
-		ExpiresAt: expires,
+		Token:             s.Token,
+		Path:              s.Path,
+		Name:              filepath.Base(s.Path),
+		Owner:             s.Owner,
+		CreatedAt:         created,
+		ExpiresAt:         expires,
+		PasswordProtected: s.PasswordProtected(),
+		MaxDownloads:      s.MaxDownloads,
+		Downloads:         s.Downloads,
 	}
 }
 

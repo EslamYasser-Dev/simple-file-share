@@ -1,17 +1,4 @@
 # =============================
-# FRONTEND BUILD STAGE
-# =============================
-FROM node:20-alpine AS web-builder
-
-WORKDIR /app/frontend
-
-COPY frontend/package.json frontend/yarn.lock frontend/.yarnrc.yml ./
-RUN corepack enable && yarn install --immutable
-
-COPY frontend/ ./
-RUN yarn build
-
-# =============================
 # BACKEND BUILD STAGE
 # =============================
 FROM golang:1.25-alpine AS builder
@@ -31,17 +18,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /file-server ./cmd/server
 
 # =============================
-# RUNTIME STAGE
+# RUNTIME STAGE (API only —
+# the UI is served by Vercel)
 # =============================
 FROM alpine:3.19
 
 RUN apk add --no-cache ca-certificates wget su-exec
 
 COPY --from=builder /file-server /file-server
-COPY --from=web-builder /app/frontend/dist /app/dist
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-# Data directory writable by the non-root runtime user; the entrypoint also
+# Data directory writable for the non-root runtime user; the entrypoint also
 # creates and owns ROOT_DIR at boot, then drops from root to nobody.
 RUN mkdir -p /data && chown -R nobody:nobody /data && \
     chmod +x /docker-entrypoint.sh
@@ -52,7 +39,6 @@ ENV APP_ENV=production \
     PORT=22010 \
     GRPC_PORT=50051 \
     ROOT_DIR=/data \
-    STATIC_DIR=/app/dist \
     ENABLE_TLS=false \
     ENABLE_AUTH=true \
     ENABLE_GRPC=true \

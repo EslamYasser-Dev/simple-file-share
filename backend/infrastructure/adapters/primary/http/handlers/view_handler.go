@@ -31,8 +31,8 @@ func (h *ViewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !download.Inline {
-		serveDownload(w, download.Stream, download.Filename, download.ContentType)
+		serveDownload(w, r, download)
 		return
 	}
-	serveInline(w, download.Stream, download.Filename, download.ContentType)
+	serveInline(w, r, download)
 }

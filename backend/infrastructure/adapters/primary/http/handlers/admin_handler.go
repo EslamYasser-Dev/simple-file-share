@@ -18,6 +18,7 @@ type AdminUserItemHandler struct {
 	update *services.UpdateUserService
 	del    *services.DeleteUserService
 	reset  *services.ResetPasswordService
+	audit  *services.AuditService
 }
 
 func NewAdminUserItemHandler(
@@ -29,6 +30,9 @@ func NewAdminUserItemHandler(
 ) *AdminUserItemHandler {
 	return &AdminUserItemHandler{list: list, create: create, update: update, del: del, reset: reset}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *AdminUserItemHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *AdminUserItemHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	username := strings.TrimSpace(r.PathValue("username"))
@@ -42,12 +46,17 @@ func (h *AdminUserItemHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 func (h *AdminUserItemHandler) handleCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		page, err := parsePaging(r)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
 		stats, err := h.list.Execute(currentUser(r))
 		if err != nil {
 			respondWithError(w, err)
 			return
 		}
-		respondJSON(w, http.StatusOK, dto.FromUserStats(stats))
+		respondJSON(w, http.StatusOK, window(page, dto.FromUserStats(stats)))
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req dto.CreateUserRequest
@@ -67,6 +76,7 @@ func (h *AdminUserItemHandler) handleCollection(w http.ResponseWriter, r *http.R
 			respondWithError(w, err)
 			return
 		}
+		h.audit.Record(services.AuditUserCreate, actorName(r), clientIP(r), user.Username, "role="+user.Role)
 		respondJSON(w, http.StatusCreated, dto.FromUser(user))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -92,12 +102,14 @@ func (h *AdminUserItemHandler) handleItem(w http.ResponseWriter, r *http.Request
 			respondWithError(w, err)
 			return
 		}
+		h.audit.Record(services.AuditUserUpdate, actorName(r), clientIP(r), username, "")
 		respondJSON(w, http.StatusOK, dto.FromUser(user))
 	case http.MethodDelete:
 		if err := h.del.Execute(currentUser(r), username); err != nil {
 			respondWithError(w, err)
 			return
 		}
+		h.audit.Record(services.AuditUserDelete, actorName(r), clientIP(r), username, "")
 		respondJSON(w, http.StatusOK, map[string]string{"message": "deleted"})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -107,11 +119,15 @@ func (h *AdminUserItemHandler) handleItem(w http.ResponseWriter, r *http.Request
 // AdminUserPasswordHandler handles /api/admin/users/{username}/password.
 type AdminUserPasswordHandler struct {
 	reset *services.ResetPasswordService
+	audit *services.AuditService
 }
 
 func NewAdminUserPasswordHandler(reset *services.ResetPasswordService) *AdminUserPasswordHandler {
 	return &AdminUserPasswordHandler{reset: reset}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *AdminUserPasswordHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *AdminUserPasswordHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -133,17 +149,22 @@ func (h *AdminUserPasswordHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, err)
 		return
 	}
+	h.audit.Record(services.AuditUserPassword, actorName(r), clientIP(r), username, "admin reset")
 	respondJSON(w, http.StatusOK, map[string]string{"message": "password updated"})
 }
 
 // SelfPasswordHandler handles POST /api/auth/password (change own password).
 type SelfPasswordHandler struct {
 	change *services.ChangePasswordService
+	audit  *services.AuditService
 }
 
 func NewSelfPasswordHandler(change *services.ChangePasswordService) *SelfPasswordHandler {
 	return &SelfPasswordHandler{change: change}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *SelfPasswordHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *SelfPasswordHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -160,6 +181,7 @@ func (h *SelfPasswordHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, err)
 		return
 	}
+	h.audit.Record(services.AuditPasswordChange, actorName(r), clientIP(r), "", "self service")
 	respondJSON(w, http.StatusOK, map[string]string{"message": "password changed"})
 }
 
@@ -167,21 +189,30 @@ func (h *SelfPasswordHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 type AdminRolesHandler struct {
 	list   *services.ListRolesService
 	upsert *services.CreateOrUpdateRoleService
+	audit  *services.AuditService
 }
 
 func NewAdminRolesHandler(list *services.ListRolesService, upsert *services.CreateOrUpdateRoleService) *AdminRolesHandler {
 	return &AdminRolesHandler{list: list, upsert: upsert}
 }
 
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *AdminRolesHandler) SetAudit(a *services.AuditService) { h.audit = a }
+
 func (h *AdminRolesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		page, err := parsePaging(r)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
 		roles, err := h.list.Execute(currentUser(r))
 		if err != nil {
 			respondWithError(w, err)
 			return
 		}
-		respondJSON(w, http.StatusOK, dto.FromRoles(roles))
+		respondJSON(w, http.StatusOK, window(page, dto.FromRoles(roles)))
 	case http.MethodPost, http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req dto.UpsertRoleRequest
@@ -194,6 +225,7 @@ func (h *AdminRolesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, err)
 			return
 		}
+		h.audit.Record(services.AuditRoleUpsert, actorName(r), clientIP(r), role.Name, "")
 		respondJSON(w, http.StatusOK, dto.FromRole(role))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -202,12 +234,16 @@ func (h *AdminRolesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // AdminRoleItemHandler handles DELETE /api/admin/roles/{name}.
 type AdminRoleItemHandler struct {
-	del *services.DeleteRoleService
+	del   *services.DeleteRoleService
+	audit *services.AuditService
 }
 
 func NewAdminRoleItemHandler(del *services.DeleteRoleService) *AdminRoleItemHandler {
 	return &AdminRoleItemHandler{del: del}
 }
+
+// SetAudit attaches the security audit trail (nil disables recording).
+func (h *AdminRoleItemHandler) SetAudit(a *services.AuditService) { h.audit = a }
 
 func (h *AdminRoleItemHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
@@ -223,6 +259,7 @@ func (h *AdminRoleItemHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, err)
 		return
 	}
+	h.audit.Record(services.AuditRoleDelete, actorName(r), clientIP(r), name, "")
 	respondJSON(w, http.StatusOK, map[string]string{"message": "deleted"})
 }
 

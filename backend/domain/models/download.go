@@ -1,6 +1,9 @@
 package models
 
-import "io"
+import (
+	"io"
+	"time"
+)
 
 // Download describes a resolved, streamable download response.
 type Download struct {
@@ -11,4 +14,9 @@ type Download struct {
 	// (content type inside the allowlist). Non-inline responses must be forced
 	// to download so uploaded HTML/SVG cannot execute on the origin.
 	Inline bool
+	// Size and ModTime describe the underlying object when known (zero
+	// ModTime = unknown). They drive ETag/Last-Modified revalidation; synthetic
+	// streams (zip archives) leave them zero and stay unvalidated.
+	Size    int64
+	ModTime time.Time
 }

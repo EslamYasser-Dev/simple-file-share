@@ -39,27 +39,39 @@ type shareDocument struct {
 	CreatedAt time.Time `json:"createdAt"`
 	IsAdmin   bool      `json:"isAdmin,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	// PasswordHash, MaxDownloads and Downloads were added with share
+	// policies; documents written by older builds decode as zero values
+	// (public, unlimited) which is exactly their previous behaviour.
+	PasswordHash string `json:"passwordHash,omitempty"`
+	MaxDownloads int    `json:"maxDownloads,omitempty"`
+	Downloads    int    `json:"downloads,omitempty"`
 }
 
 func fromShare(s *models.Share) shareDocument {
 	return shareDocument{
-		Token:     s.Token,
-		Path:      s.Path,
-		Owner:     s.Owner,
-		CreatedAt: s.CreatedAt,
-		IsAdmin:   s.IsAdmin,
-		ExpiresAt: s.ExpiresAt,
+		Token:        s.Token,
+		Path:         s.Path,
+		Owner:        s.Owner,
+		CreatedAt:    s.CreatedAt,
+		IsAdmin:      s.IsAdmin,
+		ExpiresAt:    s.ExpiresAt,
+		PasswordHash: s.PasswordHash,
+		MaxDownloads: s.MaxDownloads,
+		Downloads:    s.Downloads,
 	}
 }
 
 func (d shareDocument) toShare() *models.Share {
 	return &models.Share{
-		Token:     d.Token,
-		Path:      d.Path,
-		Owner:     d.Owner,
-		CreatedAt: d.CreatedAt,
-		IsAdmin:   d.IsAdmin,
-		ExpiresAt: d.ExpiresAt,
+		Token:        d.Token,
+		Path:         d.Path,
+		Owner:        d.Owner,
+		CreatedAt:    d.CreatedAt,
+		IsAdmin:      d.IsAdmin,
+		ExpiresAt:    d.ExpiresAt,
+		PasswordHash: d.PasswordHash,
+		MaxDownloads: d.MaxDownloads,
+		Downloads:    d.Downloads,
 	}
 }
 
@@ -189,6 +201,29 @@ func (r *ShareFileRepository) PurgeExpired(now time.Time) (int, error) {
 		return 0, err
 	}
 	return removed, nil
+}
+
+// ConsumeDownload atomically records one download against a limited link's
+// budget, rejecting with ErrShareLimitReached when it is already used up.
+func (r *ShareFileRepository) ConsumeDownload(token string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	shares, err := r.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i, doc := range shares {
+		if doc.Token != token {
+			continue
+		}
+		if doc.MaxDownloads > 0 && doc.Downloads >= doc.MaxDownloads {
+			return domainerrors.ErrShareLimitReached
+		}
+		shares[i].Downloads++
+		return r.saveLocked(shares)
+	}
+	return domainerrors.ErrShareNotFound
 }
 
 func expiredAt(now time.Time, expiresAt time.Time) bool {

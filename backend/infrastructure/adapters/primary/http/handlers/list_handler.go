@@ -21,11 +21,17 @@ func (h *ListHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page, err := parsePaging(r)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid cursor")
+		return
+	}
+
 	pageData, err := h.listService.Execute(currentUser(r), r.URL.Query().Get("path"))
 	if err != nil {
 		respondWithError(w, err)
 		return
 	}
 
-	respondJSON(w, http.StatusOK, dto.FromFileInfos(pageData.Files))
+	respondJSON(w, http.StatusOK, window(page, dto.FromFileInfos(pageData.Files)))
 }

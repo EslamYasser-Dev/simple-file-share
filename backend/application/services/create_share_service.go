@@ -19,22 +19,38 @@ import (
 // expire" (0) remains supported via noExpirySentinel.
 const maxShareValidity = 3650 * 24 * time.Hour
 
+// SharePolicy carries the optional restrictions applied when minting a link.
+type SharePolicy struct {
+	// ExpiresInSeconds is the link validity; 0 means never expires.
+	ExpiresInSeconds int64
+	// Password protects the link (checked at serve time). Empty = public.
+	Password string
+	// MaxDownloads caps serves; 0 = unlimited.
+	MaxDownloads int
+}
+
+// maxSharePassword bounds stored link passwords (PBKDF2 accepts anything,
+// but unbounded input is an easy memory-amplification vector).
+const maxSharePassword = 256
+
 // CreateShareService generates an unguessable public link to a file or
-// directory the user is allowed to read, with a caller-chosen validity window.
+// directory the user is allowed to read, with caller-chosen policies.
 type CreateShareService struct {
 	fileRepo  ports.FileRepository
 	shareRepo ports.ShareRepository
 	scoper    ports.PathScoper
+	hasher    ports.PasswordHasher
 	now       func() time.Time
 	tokenLen  int
 	bus       *events.Bus
 }
 
-func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareRepository, scoper ports.PathScoper) *CreateShareService {
+func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareRepository, scoper ports.PathScoper, hasher ports.PasswordHasher) *CreateShareService {
 	return &CreateShareService{
 		fileRepo:  fileRepo,
 		shareRepo: shareRepo,
 		scoper:    scoper,
+		hasher:    hasher,
 		now:       time.Now,
 		tokenLen:  32,
 	}
@@ -43,14 +59,20 @@ func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareR
 // SetEventBus attaches a live-update bus (nil disables publishing).
 func (s *CreateShareService) SetEventBus(bus *events.Bus) { s.bus = bus }
 
-// Execute creates a share for the given virtual path. expiresInSeconds of 0
-// means the link never expires. Returns the created share.
-func (s *CreateShareService) Execute(user *models.User, path string, expiresInSeconds int64) (*models.Share, error) {
-	if expiresInSeconds < 0 {
-		return nil, domainerrors.NewValidationError("expiresInSeconds", expiresInSeconds, "must be zero or positive")
+// Execute creates a share for the given virtual path under the given policy.
+// Returns the created share.
+func (s *CreateShareService) Execute(user *models.User, path string, policy SharePolicy) (*models.Share, error) {
+	if policy.ExpiresInSeconds < 0 {
+		return nil, domainerrors.NewValidationError("expiresInSeconds", policy.ExpiresInSeconds, "must be zero or positive")
 	}
-	if time.Duration(expiresInSeconds)*time.Second > maxShareValidity {
-		return nil, domainerrors.NewValidationError("expiresInSeconds", expiresInSeconds, "validity exceeds the maximum allowed")
+	if time.Duration(policy.ExpiresInSeconds)*time.Second > maxShareValidity {
+		return nil, domainerrors.NewValidationError("expiresInSeconds", policy.ExpiresInSeconds, "validity exceeds the maximum allowed")
+	}
+	if policy.MaxDownloads < 0 {
+		return nil, domainerrors.NewValidationError("maxDownloads", policy.MaxDownloads, "must be zero or positive")
+	}
+	if len(policy.Password) > maxSharePassword {
+		return nil, domainerrors.NewValidationError("password", nil, "must be at most 256 characters")
 	}
 
 	fp, err := valueobjects.NewFilePath(path)
@@ -86,16 +108,24 @@ func (s *CreateShareService) Execute(user *models.User, path string, expiresInSe
 
 	now := s.now()
 	share := &models.Share{
-		Token:     token,
-		Path:      virtual,
-		Owner:     owner,
-		CreatedAt: now,
+		Token:        token,
+		Path:         virtual,
+		Owner:        owner,
+		CreatedAt:    now,
+		MaxDownloads: policy.MaxDownloads,
 	}
 	if user != nil {
 		share.IsAdmin = user.IsAdmin
 	}
-	if expiresInSeconds > 0 {
-		share.ExpiresAt = now.Add(time.Duration(expiresInSeconds) * time.Second)
+	if policy.ExpiresInSeconds > 0 {
+		share.ExpiresAt = now.Add(time.Duration(policy.ExpiresInSeconds) * time.Second)
+	}
+	if policy.Password != "" {
+		hash, err := s.hasher.Hash(policy.Password)
+		if err != nil {
+			return nil, err
+		}
+		share.PasswordHash = hash
 	}
 
 	if err := s.shareRepo.Create(share); err != nil {

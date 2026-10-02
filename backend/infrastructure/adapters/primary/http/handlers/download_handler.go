@@ -25,5 +25,5 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, err)
 		return
 	}
-	serveDownload(w, download.Stream, download.Filename, download.ContentType)
+	serveDownload(w, r, download)
 }

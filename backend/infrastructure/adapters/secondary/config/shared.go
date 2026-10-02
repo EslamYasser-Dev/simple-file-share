@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,8 +22,8 @@ const (
 	defaultDefaultQuotaBytes int64 = 0
 	// devStorageDirName is the dedicated, app-owned directory created under the
 	// working directory when ROOT_DIR is unset in development. Storage must never
-	// default to the working directory itself or a source folder (e.g.
-	// frontend/), because the server deletes and rewrites paths under the root.
+	// default to the working directory itself or a source folder, because the
+	// server deletes and rewrites paths under the root.
 	devStorageDirName = ".file-share-data"
 )
 
@@ -66,6 +67,103 @@ func resolvePassword() string {
 // resolveEnableSignup gates public self-registration. Defaults to enabled.
 func resolveEnableSignup() bool {
 	return resolveBoolEnv("ENABLE_SIGNUP", true)
+}
+
+// resolveEnableMetrics gates GET /metrics. Defaults to enabled: the endpoint
+// guards itself (admin JWT or METRICS_TOKEN), so exposing it is safe and
+// production observability should not depend on remembering a flag.
+func resolveEnableMetrics() bool {
+	return resolveBoolEnv("ENABLE_METRICS", true)
+}
+
+// resolveMetricsToken is the optional static bearer token for /metrics.
+func resolveMetricsToken() string {
+	return strings.TrimSpace(os.Getenv("METRICS_TOKEN"))
+}
+
+// resolveEnablePprof gates the loopback pprof side listener. Defaults to off:
+// it is a debugging tool and must never be enabled by accident.
+func resolveEnablePprof() bool {
+	return resolveBoolEnv("ENABLE_PPROF", false)
+}
+
+// resolveEnableIndexSnapshot gates the persisted text-index snapshot.
+// Defaults on: boot skips re-extraction of unchanged files. INDEX_SNAPSHOT
+// =false restores a plain full rebuild every start.
+func resolveEnableIndexSnapshot() bool {
+	return resolveBoolEnv("INDEX_SNAPSHOT", true)
+}
+
+// resolveEnableAuditLog gates the security audit trail. Defaults on: an
+// ops deployment should not lose login/admin history to a forgotten flag.
+func resolveEnableAuditLog() bool {
+	return resolveBoolEnv("AUDIT_LOG", true)
+}
+
+// resolveAuditMaxBytes is the rotation budget of the active audit file
+// (human sizes such as "16MB" are accepted).
+func resolveAuditMaxBytes() int64 {
+	return resolveSizeEnv("AUDIT_MAX_BYTES", 8<<20)
+}
+
+// resolveAuditKeep is the number of rotated audit generations retained.
+func resolveAuditKeep() int {
+	raw := strings.TrimSpace(os.Getenv("AUDIT_KEEP"))
+	if raw == "" {
+		return 3
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 3
+	}
+	if n > 10 {
+		n = 10
+	}
+	return n
+}
+
+// resolveEnableTwoFactor gates the TOTP enrollment routes. Defaults on:
+// accounts are only protected after opting in, so offering the feature is
+// safe; =false blocks new enrollments (existing enrolled accounts still
+// enforce their second factor at login).
+func resolveEnableTwoFactor() bool {
+	return resolveBoolEnv("ENABLE_2FA", true)
+}
+
+// resolveEnableAPIKeys gates the API key endpoints and "sfs_…" bearer
+// credentials. Defaults on; =false hides the routes and rejects every key.
+func resolveEnableAPIKeys() bool {
+	return resolveBoolEnv("ENABLE_API_KEYS", true)
+}
+
+// resolveWebhookURLs parses WEBHOOK_URLS (comma separated). Only http(s)
+// endpoints with a host survive parsing, so a typo or an unexpected scheme is
+// dropped at startup instead of becoming a surprising outbound request.
+// Empty (the default) disables webhooks entirely.
+func resolveWebhookURLs() []string {
+	raw := strings.TrimSpace(os.Getenv("WEBHOOK_URLS"))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		candidate := strings.TrimSpace(part)
+		if candidate == "" {
+			continue
+		}
+		parsed, err := url.Parse(candidate)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+// resolveWebhookSecret is the HMAC-SHA256 signing key for webhook deliveries.
+// Empty means deliveries are sent unsigned.
+func resolveWebhookSecret() string {
+	return strings.TrimSpace(os.Getenv("WEBHOOK_SECRET"))
 }
 
 // resolveGRPCPort returns the gRPC listen port. Defaults to 50051.

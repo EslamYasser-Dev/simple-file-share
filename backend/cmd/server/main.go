@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/EslamYasser-Dev/simple-file-share/application/events"
@@ -19,13 +22,18 @@ import (
 	xhttp "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/http/handlers"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/analytics"
+	auditstore "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/audit"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/auth"
 	config "github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/config"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/fs"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/indexstore"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/logging"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/memory"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/metrics"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/s3"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/sessions"
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/tls"
+	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/secondary/webhook"
 )
 
 const productionEnv = "production"
@@ -109,11 +117,75 @@ func main() {
 
 	fileRepo := fs.NewIndexedFileRepository(contentRepo, indexRepo, textIndex)
 
+	// Observability: one recorder shared by the HTTP listener, the gRPC
+	// interceptors, and the SSE handler. Disabled entirely when
+	// ENABLE_METRICS=false (request ids still get stamped).
+	var recorder ports.MetricsRecorder
+	var metricsExporter ports.MetricsExporter
+	var registry *metrics.Registry
+	if cfg.EnableMetrics() {
+		registry = metrics.NewRegistry()
+		rec := metrics.NewRecorder(registry)
+		recorder = rec
+		metricsExporter = rec
+		registry.NewGauge(
+			"fileshare_process_start_time_seconds",
+			"Unix time when this process started.",
+		).WithLabelValues().Set(float64(time.Now().Unix()))
+		indexFilesGauge := registry.NewGauge(
+			"fileshare_index_files",
+			"Files currently in the metadata search index.",
+		).WithLabelValues()
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if files, _, err := indexRepo.PrefixStats(""); err == nil {
+					indexFilesGauge.Set(float64(files))
+				}
+			}
+		}()
+		logger.Info("Metrics enabled", "endpoint", "/metrics")
+	}
+
 	rebuildService := services.NewRebuildIndexService(indexRepo, textIndex)
-	if err := rebuildService.Execute(rootDir, walkRoot, walkText); err != nil {
+	if cfg.EnableIndexSnapshot() {
+		// Incremental boot: unchanged text documents are restored from
+		// ROOT_DIR/.file-share/index.snapshot; only new/changed files are
+		// re-read through the active content backend (local or S3).
+		rebuildService.EnableSnapshotPersist(indexstore.NewStore(rootDir), fileRepo.ServeFile)
+		logger.Info("Index snapshot persistence enabled")
+	}
+	var indexReady atomic.Bool
+	build, err := rebuildService.Execute(rootDir, walkRoot, walkText)
+	if err != nil {
 		logger.Warn("File index rebuild failed", "error", err)
 	} else {
-		logger.Info("File search index ready")
+		indexReady.Store(true)
+		logger.Info("File search index ready",
+			"source", build.Source,
+			"files", build.Files,
+			"text_docs", build.TextDocs,
+			"duration_ms", build.Duration.Milliseconds(),
+		)
+		if build.SnapshotErr != nil {
+			logger.Warn("Index snapshot save failed (next boot re-extracts)", "error", build.SnapshotErr)
+		}
+		if registry != nil {
+			registry.NewGauge(
+				"fileshare_index_build_seconds",
+				"Duration of the last startup index build in seconds.",
+			).WithLabelValues().Set(build.Duration.Seconds())
+			registry.NewGauge(
+				"fileshare_index_source",
+				"1 for the source the last index build used (snapshot|full).",
+				"source",
+			).WithLabelValues(build.Source).Set(1)
+			registry.NewGauge(
+				"fileshare_index_text_docs",
+				"Documents in the full-text index after the last build.",
+			).WithLabelValues().Set(float64(build.TextDocs))
+		}
 	}
 
 	scoper := policy.NewPathScoper()
@@ -122,6 +194,20 @@ func main() {
 	roleRepo := fs.NewRoleFileRepository(rootDir)
 	roleCatalog := services.NewRoleCatalog(roleRepo)
 	hasher := auth.NewPBKDF2Hasher()
+
+	// Security audit trail (logins, admin changes). The store is a plain
+	// interface so a disabled audit is a true nil, never a typed-nil.
+	var auditStore ports.AuditLog
+	if cfg.EnableAuditLog() {
+		jsonlStore := auditstore.NewJSONLLog(rootDir, cfg.GetAuditMaxBytes(), cfg.GetAuditKeep())
+		auditStore = jsonlStore
+		logger.Info("Security audit log enabled", "path", jsonlStore.Path())
+	}
+	auditService := services.NewAuditService(auditStore, roleCatalog)
+
+	// Two-factor authentication: state lives on the user account, so this
+	// service only needs the user repo, hasher (backup codes) and roles.
+	totpService := services.NewTOTPService(userRepo, hasher, roleCatalog)
 
 	seedService := services.NewSeedAdminService(userRepo, hasher, fileRepo, scoper)
 	if !cfg.EnableAuth() {
@@ -147,6 +233,9 @@ func main() {
 	revocationPath := filepath.Join(rootDir, ".file-share", "token_revocations.json")
 	jwtManager := auth.NewJWTManagerWithStore(jwtSecret, time.Duration(cfg.GetJWTTTLSeconds())*time.Second, revocationPath)
 	tokenService := services.NewTokenService(authenticateService, jwtManager, userRepo)
+	tokenService.SetTwoFactor(totpService)
+	sessionService := services.NewSessionService(sessions.NewRegistry(rootDir), jwtManager)
+	tokenService.SetSessions(sessionService)
 	oauthProviders := auth.NewOAuthProviders()
 	if err := enforceOAuthConfig(cfg, oauthProviders); err != nil {
 		logger.Fatal("Invalid OAuth configuration", "error", err)
@@ -216,6 +305,18 @@ func main() {
 		}
 	}()
 
+	// Optional webhooks: when WEBHOOK_URLS is configured, every bus event is
+	// also POSTed to those endpoints (HMAC-signed when WEBHOOK_SECRET is set).
+	// Delivery is best-effort and never fails the request that published it.
+	if webhookURLs := cfg.GetWebhookURLs(); len(webhookURLs) > 0 {
+		dispatcher := webhook.NewDispatcher(webhookURLs, cfg.GetWebhookSecret(), logger)
+		go dispatcher.Run(context.Background(), eventBus)
+		logger.Info("Webhooks enabled",
+			"endpoints", len(webhookURLs),
+			"signed", cfg.GetWebhookSecret() != "",
+		)
+	}
+
 	listVersionsService := services.NewListVersionsService(fileRepo, versionRepo, scoper)
 	downloadVersionService := services.NewDownloadVersionService(fileRepo, versionRepo, scoper)
 	restoreVersionService := services.NewRestoreVersionService(fileRepo, versionRepo, scoper)
@@ -228,10 +329,10 @@ func main() {
 	}
 
 	// Public share links: management handlers require auth, resolution does not.
-	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper)
+	createShareService := services.NewCreateShareService(fileRepo, shareRepo, scoper, hasher)
 	listSharesService := services.NewListSharesService(shareRepo, scoper, roleCatalog)
 	revokeShareService := services.NewRevokeShareService(shareRepo, scoper, roleCatalog)
-	resolveShareService := services.NewResolveShareService(shareRepo, scoper, downloadService)
+	resolveShareService := services.NewResolveShareService(shareRepo, scoper, downloadService, hasher)
 	purgeSharesService := services.NewPurgeExpiredSharesService(shareRepo)
 	createShareService.SetEventBus(eventBus)
 	revokeShareService.SetEventBus(eventBus)
@@ -261,6 +362,51 @@ func main() {
 	deleteHandler := handlers.NewDeleteHandler(deleteService)
 	filesHandler := handlers.NewFilesHandler(listHandler, deleteHandler)
 
+	eventsHandler := handlers.NewEventsHandler(eventBus)
+	eventsHandler.SetMetricsRecorder(recorder)
+
+	// Handlers that record security events get the audit trail attached on
+	// the concrete type before they are stored as http.Handler.
+	registerHandler := handlers.NewRegisterHandler(registerService)
+	registerHandler.SetAudit(auditService)
+	adminUserHandler := handlers.NewAdminUserItemHandler(usersService, createUserService, updateUserService, deleteUserService, resetPasswordService)
+	adminUserHandler.SetAudit(auditService)
+	adminQuotaHandler := handlers.NewAdminQuotaHandler(quotaService)
+	adminQuotaHandler.SetAudit(auditService)
+	adminPassHandler := handlers.NewAdminUserPasswordHandler(resetPasswordService)
+	adminPassHandler.SetAudit(auditService)
+	adminRolesHandler := handlers.NewAdminRolesHandler(listRolesService, upsertRoleService)
+	adminRolesHandler.SetAudit(auditService)
+	adminRoleHandler := handlers.NewAdminRoleItemHandler(deleteRoleService)
+	adminRoleHandler.SetAudit(auditService)
+	selfPassHandler := handlers.NewSelfPasswordHandler(changePasswordService)
+	selfPassHandler.SetAudit(auditService)
+	sharesHandler := handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService)
+	sharesHandler.SetAudit(auditService)
+	tokenHandler := handlers.NewTokenHandler(tokenService)
+	tokenHandler.SetAudit(auditService)
+	tokenHandler.SetSessions(sessionService)
+	revokeHandler := handlers.NewRevokeHandler(tokenService)
+	revokeHandler.SetAudit(auditService)
+	refreshHandler := handlers.NewRefreshHandler(tokenService)
+	refreshHandler.SetSessions(sessionService)
+	authInfoHandler := handlers.NewAuthInfoHandler(cfg.EnableSignup(), oauthService.ProviderNames())
+	authInfoHandler.SetTwoFactor(cfg.EnableTwoFactor())
+	totpHandler := handlers.NewTOTPHandler(totpService)
+	totpHandler.SetAudit(auditService)
+	adminTotpResetHandler := handlers.NewAdminTotpResetHandler(totpService)
+	adminTotpResetHandler.SetAudit(auditService)
+
+	// API keys: nil service disables both the routes and "sfs_…" bearer
+	// credentials (existing keys stop authenticating until re-enabled).
+	var apiKeyService *services.APIKeyService
+	var apiKeyHandler *handlers.APIKeysHandler
+	if cfg.EnableAPIKeys() {
+		apiKeyService = services.NewAPIKeyService(fs.NewAPIKeyFileRepository(rootDir), userRepo, hasher)
+		apiKeyHandler = handlers.NewAPIKeysHandler(apiKeyService)
+		apiKeyHandler.SetAudit(auditService)
+	}
+
 	routeHandlers := xhttp.RouteHandlers{
 		Files:           filesHandler,
 		Download:        handlers.NewDownloadHandler(downloadService),
@@ -271,31 +417,63 @@ func main() {
 		Directory:       handlers.NewDirectoryHandler(createDirService),
 		FileInfo:        handlers.NewFileInfoHandler(infoService),
 		Search:          handlers.NewSearchHandler(searchService),
-		Events:          handlers.NewEventsHandler(eventBus),
+		Events:          eventsHandler,
 		P2P:             handlers.NewP2PHandler(p2pService),
-		Register:        handlers.NewRegisterHandler(registerService),
+		Register:        registerHandler,
 		Me:              handlers.NewMeHandler(userInfoService),
-		AuthInfo:        handlers.NewAuthInfoHandler(cfg.EnableSignup(), oauthService.ProviderNames()),
+		AuthInfo:        authInfoHandler,
 		AdminUsers:      handlers.NewAdminUsersHandler(usersService),
-		AdminUser:       handlers.NewAdminUserItemHandler(usersService, createUserService, updateUserService, deleteUserService, resetPasswordService),
-		AdminQuota:      handlers.NewAdminQuotaHandler(quotaService),
-		AdminPass:       handlers.NewAdminUserPasswordHandler(resetPasswordService),
-		AdminRoles:      handlers.NewAdminRolesHandler(listRolesService, upsertRoleService),
-		AdminRole:       handlers.NewAdminRoleItemHandler(deleteRoleService),
+		AdminUser:       adminUserHandler,
+		AdminQuota:      adminQuotaHandler,
+		AdminPass:       adminPassHandler,
+		AdminRoles:      adminRolesHandler,
+		AdminRole:       adminRoleHandler,
 		AdminAnalytics:  handlers.NewAdminAnalyticsHandler(analyticsService),
-		SelfPass:        handlers.NewSelfPasswordHandler(changePasswordService),
-		Shares:          handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService),
+		SelfPass:        selfPassHandler,
+		Shares:          sharesHandler,
 		Share:           handlers.NewShareDownloadHandler(resolveShareService),
 		Versions:        handlers.NewVersionsHandler(listVersionsService),
 		Version:         handlers.NewVersionDownloadHandler(downloadVersionService),
 		Restore:         handlers.NewVersionRestoreHandler(restoreVersionService),
 		Health:          handlers.NewHealthHandler(),
-		Token:           handlers.NewTokenHandler(tokenService),
-		Refresh:         handlers.NewRefreshHandler(tokenService),
-		Revoke:          handlers.NewRevokeHandler(tokenService),
+		Token:           tokenHandler,
+		Refresh:         refreshHandler,
+		Revoke:          revokeHandler,
+		Sessions:        handlers.NewSessionsHandler(sessionService),
 		OAuthStart:      handlers.NewOAuthStartHandler(oauthService),
 		OAuthCb:         handlers.NewOAuthCallbackHandler(oauthService),
 		GRPCCert:        handlers.NewGRPCCertHandler(tlsGenerator),
+		Ready: handlers.NewReadyHandler(
+			handlers.ReadinessCheck{Name: "storage", Check: func() error {
+				return checkStorageWritable(rootDir)
+			}},
+			handlers.ReadinessCheck{Name: "index", Check: func() error {
+				if !indexReady.Load() {
+					return fmt.Errorf("metadata index not rebuilt")
+				}
+				return nil
+			}},
+		),
+	}
+	if metricsExporter != nil {
+		routeHandlers.Metrics = handlers.NewMetricsHandler(
+			metricsExporter,
+			cfg.GetMetricsToken(),
+			cfg.EnableAuth(),
+			func(r *http.Request) (*models.User, error) {
+				return xhttp.ResolveAuthenticatedUser(r, authenticateService, tokenService)
+			},
+		)
+	}
+	if auditService.Enabled() {
+		routeHandlers.AdminAudit = handlers.NewAdminAuditHandler(auditService)
+	}
+	if cfg.EnableTwoFactor() {
+		routeHandlers.Totp = totpHandler
+		routeHandlers.AdminTotpReset = adminTotpResetHandler
+	}
+	if apiKeyHandler != nil {
+		routeHandlers.APIKeys = apiKeyHandler
 	}
 
 	server := xhttp.NewServer(
@@ -305,9 +483,15 @@ func main() {
 		routeHandlers,
 		authenticateService,
 		tokenService,
+		apiKeyService,
 		cfg.EnableAuth(),
 	)
 	server.ConfigureTLS(cfg.EnableTLS())
+	server.SetMetricsRecorder(recorder)
+
+	if cfg.EnablePprof() {
+		go servePprof(logger)
+	}
 
 	if cfg.EnableGRPC() {
 		authService := grpcapi.NewAuthService(registerService, usersService, authenticateService, userInfoService, cfg.EnableSignup(), tokenService)
@@ -335,6 +519,7 @@ func main() {
 			shareService,
 			eventsService,
 			fileService,
+			grpcapi.WithMetrics(recorder),
 		)
 		if err != nil {
 			logger.Fatal("Failed to create gRPC server", "error", err)
@@ -349,15 +534,10 @@ func main() {
 		defer grpcServer.Stop()
 	}
 
-	// Serve the built React frontend whenever present (both dev and production).
-	// Point STATIC_DIR at the directory containing index.html + assets. Serving the
-	// frontend from the Go binary lets one container host the whole app (the API
-	// and the UI) behind a single origin.
-	staticDir := os.Getenv("STATIC_DIR")
-	if staticDir == "" {
-		staticDir = "frontend/dist"
-	}
-	server.SetStaticFileServer(staticDir)
+	// Serve a prebuilt SPA from the same origin only when STATIC_DIR points at
+	// a directory containing index.html + assets. Unset by default: the UI is
+	// hosted separately (Vercel) and the server mounts the API alone.
+	server.SetStaticFileServer(os.Getenv("STATIC_DIR"))
 
 	if err := server.Start(); err != nil {
 		logger.Fatal("Server failed", "error", err)
@@ -372,6 +552,57 @@ func loadConfig(logger ports.Logger) (ports.ConfigProvider, error) {
 	}
 	logger.Info("Running in DEVELOPMENT mode (auth/TLS disabled unless explicitly enabled)")
 	return config.NewDevConfigProvider()
+}
+
+// checkStorageWritable is the readiness probe for the storage root: create,
+// fsync, and remove a tiny temp file. It catches read-only mounts and full
+// disks — the failures that would break every write after boot.
+func checkStorageWritable(rootDir string) error {
+	f, err := os.CreateTemp(rootDir, ".ready-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	if _, err := f.Write([]byte("ok")); err != nil {
+		_ = f.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
+}
+
+// servePprof exposes net/http/pprof on a loopback-only side listener. It is
+// intentionally never mounted on the public mux: profiling endpoints leak
+// internals and must not be reachable from the network.
+func servePprof(logger ports.Logger) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+
+	addr := "127.0.0.1:6060"
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	logger.Info("pprof listening (loopback only)", "address", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("pprof server failed", "error", err)
+	}
 }
 
 // enforceJWTSecretPolicy refuses forgeable secrets when auth is on in

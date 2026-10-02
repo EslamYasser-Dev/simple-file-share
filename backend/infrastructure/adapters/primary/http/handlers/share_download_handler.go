@@ -26,15 +26,22 @@ func (h *ShareDownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 
 	token := strings.TrimPrefix(r.URL.Path, "/api/share/")
-	download, err := h.service.Execute(token)
+	// Password comes from the dedicated header (preferred; never logged) or,
+	// for simple clients, a query parameter (the access log records the path
+	// only, not the query).
+	password := r.Header.Get("X-Share-Password")
+	if password == "" {
+		password = r.URL.Query().Get("password")
+	}
+	download, err := h.service.Execute(token, password)
 	if err != nil {
 		respondWithError(w, err)
 		return
 	}
 
 	if !download.Inline {
-		serveDownload(w, download.Stream, download.Filename, download.ContentType)
+		serveDownload(w, r, download)
 		return
 	}
-	serveInline(w, download.Stream, download.Filename, download.ContentType)
+	serveInline(w, r, download)
 }

@@ -60,7 +60,7 @@ func TestSecurityHeadersCSPSkippedForSwagger(t *testing.T) {
 }
 
 func TestReadHeaderTimeoutIsBounded(t *testing.T) {
-	server := NewServer("0", noopTLS{}, dumbLogger{}, RouteHandlers{}, nil, nil, false)
+	server := NewServer("0", noopTLS{}, dumbLogger{}, RouteHandlers{}, nil, nil, nil, false)
 	if server.httpServer.ReadHeaderTimeout <= 0 {
 		t.Fatalf("ReadHeaderTimeout = %v, want > 0 (slowloris protection)", server.httpServer.ReadHeaderTimeout)
 	}
@@ -71,7 +71,7 @@ func TestPublicAuthRoutesAreRateLimited(t *testing.T) {
 		Token: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}),
-	}, nil, nil, false)
+	}, nil, nil, nil, false)
 	server.authLimiter = NewIPLimiter(1, 2)
 
 	mux := server.registerRoutes()
@@ -96,7 +96,7 @@ func TestPublicAuthRoutesAreRateLimited(t *testing.T) {
 }
 
 func TestSwaggerGatedByEnv(t *testing.T) {
-	server := NewServer("0", noopTLS{}, dumbLogger{}, RouteHandlers{}, nil, nil, false)
+	server := NewServer("0", noopTLS{}, dumbLogger{}, RouteHandlers{}, nil, nil, nil, false)
 
 	t.Setenv("ENABLE_SWAGGER", "false")
 	t.Setenv("APP_ENV", "development")
