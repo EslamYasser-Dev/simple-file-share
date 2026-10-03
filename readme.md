@@ -92,8 +92,8 @@ Simple File Share is a modern web application that provides secure file manageme
 - **Framework**: Flutter with Riverpod state management
 - **Language**: Dart
 - **Transport**: gRPC (`package:grpc`) — JWT via `authorization: Bearer` metadata (token stored in flutter_secure_storage)
-- **Features**: Browse/upload/download, share links, usage bar, live gRPC event stream
-- **Config**: `--dart-define=API_BASE_URL=...` sets the API base URL; the gRPC target (host/port/TLS) is derived from it, and can be pointed at a TCP proxy with `--dart-define=GRPC_HOST=... --dart-define=GRPC_PORT=...`. Secure targets fetch the server certificate from `GET /api/grpc/cert` over HTTPS and pin it on the channel.
+- **Features**: Browse/upload/download (resumable), share links with password/expiry/limits, TailTime social feed with follows and per-file privacy, streaming image/video preview, thumbnails, Google sign-in, WebRTC file transfer and voice/video calls, nearby discovery with master switch, username search with presence
+- **Config**: `--dart-define=API_BASE_URL=...` sets the API base URL; the gRPC target (host/port/TLS) is derived from it, and can be pointed at a TCP proxy with `--dart-define=GRPC_HOST=... --dart-define=GRPC_PORT=...`. Secure targets fetch the server certificate from `GET /api/grpc/cert` over HTTPS and pin it on the channel. Additional defines: `GOOGLE_SERVER_CLIENT_ID` (Google sign-in), `STUN_URL`/`TURN_URL`/`TURN_USERNAME`/`TURN_CREDENTIAL` (call relay).
 
 ## 📚 API Documentation
 
@@ -259,8 +259,75 @@ GET  /api/share/{token}               # public fetch, no auth
 - **Create responses**:
   - `201`: Link object with `token`, `passwordProtected`, `maxDownloads`, `downloads`
   - `400`: Validation error (negative `maxDownloads`, oversized password)
-- gRPC `CreateShare` keeps its expiry-only contract (protobuf has no password/limit fields); passworded/limited links created over HTTP answer `FailedPrecondition`/`ResourceExhausted` over gRPC.
+- gRPC `CreateShare` now accepts `password` and `max_downloads` fields; passworded/limited links created over HTTP answer `FailedPrecondition`/`ResourceExhausted` over gRPC when the fields are absent.
 - Every create/revoke lands in the audit trail (`share.create` with `password,limit` detail flags, `share.revoke`).
+
+#### 9c. Thumbnails (JPEG previews)
+```
+GET /api/thumbs?path=<file>&w=<width>
+```
+- Serves a cached, EXIF-stripped JPEG preview of an image the caller owns. Width defaults to 320, clamped to 32–512. Re-encoding drops GPS/metadata by construction.
+- **Responses**:
+  - `200`: `image/jpeg` bytes
+  - `400`: Unsupported format or file too large (>40 MiB)
+  - `401`: Authentication required
+  - `403`: Cross-user path
+  - `404`: File not found
+  - `409`: Path is a directory
+
+#### 9d. User Search (username lookup)
+```
+GET /api/users/search?q=<query>
+```
+- Case-insensitive substring match on usernames, requester excluded, capped at 20 results. Usernames only — no roles, quotas, or contact details leak.
+- **Responses**:
+  - `200`: `{ "usernames": ["alice", "bob"] }`
+  - `400`: Empty or oversized query
+  - `401`: Authentication required
+
+#### 9e. Google Sign-In Exchange
+```
+POST /api/auth/google/exchange
+Content-Type: application/json
+```
+- **Body**: `{ "idToken": "<Google OIDC ID token>" }`
+- Verifies the ID token (RS256 signature against Google's JWK set, issuer, audience against `GOOGLE_CLIENT_ID`, expiry), then mints an app session for the linked account — creating it on first use through the shared OAuth upsert.
+- **Responses**:
+  - `200`: `{ "accessToken", "tokenType", "expiresIn", "isNewAccount" }`
+  - `400`: Invalid/missing token, wrong audience, expired, or Google sign-in not configured
+- Public endpoint, rate-limited like login. Audit trail records `login.ok`/`login.fail` with `google` detail.
+
+#### 9f. Social: Follows, Visibility, Feed
+```
+POST   /api/follows              # body: { "username": "alice" }
+DELETE /api/follows              # body: { "username": "alice" }
+GET    /api/follows?check=<user> # am I following them?
+GET    /api/follows?user=<user>&direction=followers|following
+PUT    /api/visibility           # body: { "path", "level": "private|link|public", "allowStream": bool }
+GET    /api/visibility?owner=<user>&path=<path>
+GET    /api/feed?cursor=<id>&limit=<n>
+```
+- **Follows**: open-follow edges (one tap, no approval). Both endpoints must be real accounts; self-follow rejected.
+- **Visibility**: per-file privacy. `private` = owner only; `link` = followers can see/stream; `public` = any authenticated user. `allowStream` gates media playback for non-owners. Downgrading refreshes all feed entries immediately.
+- **Feed**: cursor-paged upload timeline. Owners see their own entries; followers see link-scoped entries from followed users; everyone sees public entries. Metadata only — never raw paths outside the viewer's scope.
+- **Responses**:
+  - `200`/`201`: Follow/visibility/feed JSON
+  - `400`: Validation error
+  - `401`: Authentication required
+  - `403`: Cross-user visibility set
+  - `404`: Unknown user/file
+  - `409`: Already following
+
+#### 9g. Shared File Streaming (cross-user)
+```
+GET /api/shared?owner=<user>&path=<file>
+```
+- Streams another owner's file after re-checking the streaming gate (link/public + `allowStream`, or owner). Replays the owner's read scope like share resolution. Safe types render inline; anything else is forced to download.
+- **Responses**:
+  - `200`/`206`: File stream (same ETag/Range semantics as §3)
+  - `401`: Authentication required
+  - `403`: Gate denied (private, not following, or streaming off)
+  - `404`: File not found
 
 #### 10. Health Check
 ```
@@ -427,10 +494,11 @@ Go stubs live beside it (Dart stubs under `mobile/lib/src/grpc/`).
 - **Services**
   - `fileshare.v1.AuthService`: `Register`, `Authenticate`, `Me`, `GetAuthInfo`, `ListUsers` (users.read), `Login` (issues JWT), `Logout` (revokes bearer token)
   - `fileshare.v1.FileService`: `ListFiles`, `GetFileInfo`, `SearchFiles`, `CreateDirectory`, `DeletePath`, `UpdateFileContent`, `UploadFile` (client streaming), `DownloadFile` (server streaming)
-  - `fileshare.v1.ShareService`: `CreateShare`, `ListShares`, `RevokeShare`
+  - `fileshare.v1.ShareService`: `CreateShare` (with password + max_downloads), `ListShares`, `RevokeShare`
   - `fileshare.v1.EventsService`: `Subscribe` (server streaming of `EventMessage`, per-user filtered)
+  - `fileshare.v1.SocialService`: `Follow`, `Unfollow`, `IsFollowing`, `ListFollowers`, `ListFollowing`, `SetVisibility`, `GetVisibility`, `ListFeed`, `DownloadSharedFile` (server streaming)
 - **Authentication**: bearer JWT in request metadata (`authorization: Basic ...` or `authorization: Bearer ...`), matching the web API. `Register`, `Authenticate`, `GetAuthInfo`, `Login`, and `Logout` are public.
-- **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 64 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk; `Subscribe` pushes the same event types as SSE (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, ...).
+- **Streaming**: uploads send a metadata message followed by `chunk` messages; downloads stream 256 KiB `DownloadChunk` messages, with the resolved filename/content type on the first chunk; `Subscribe` pushes the same event types as SSE (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `visibility`, `follow`, ...).
 - **Server**: served on the HTTP port (cleartext HTTP/2 / h2c — what the mobile app uses by default) and on `GRPC_PORT`; health (`grpc.health.v1.Health`) and server reflection are enabled for tooling. `ENABLE_GRPC_TLS` (default: follows `ENABLE_TLS`) turns on TLS for the gRPC listener independently of HTTP, so an edge-terminated deployment can serve plain HTTP while a TCP-proxied `GRPC_PORT` speaks TLS.
 - **Configuration**: `ENABLE_GRPC` (default `true`), `GRPC_PORT` (default `50051`), `ENABLE_GRPC_TLS` (default: follows `ENABLE_TLS`).
 - **Certificate pinning**: when gRPC TLS is enabled, `GET /api/grpc/cert` returns the PEM certificate the gRPC listener serves (404 when disabled). The self-signed certificate is persisted under `ROOT_DIR/.file-share/tls/` and shared by every listener, so mobile clients can fetch it once over the trusted HTTPS API and pin it — it stays valid across restarts.
@@ -673,8 +741,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 flutter analyze && flutter test
 ```
 
-OAuth sign-in uses the browser session cookie flow, so the mobile app currently
-supports username/password JWT login only.
+OAuth sign-in uses the browser session cookie flow. Mobile Google sign-in uses OIDC ID-token exchange (`POST /api/auth/google/exchange`) — set `GOOGLE_CLIENT_ID` on the server and build the app with `--dart-define=GOOGLE_SERVER_CLIENT_ID=<same id>`.
 
 ## ☁️ Deployment
 
@@ -715,6 +782,7 @@ Two deployment shapes are supported:
 | `ENABLE_API_KEYS` | `true` | Serve the API key endpoints and accept `sfs_…` bearer credentials. `false` hides the routes and stops every existing key from authenticating |
 | `OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET` | `""` (off) | Enable GitHub sign-in. Both must be set together, otherwise the provider is never registered |
 | `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | `""` (off) | Enable Google sign-in. Both must be set together, otherwise the provider is never registered |
+| `GOOGLE_CLIENT_ID` | `""` (off) | Comma-separated Google OAuth client IDs accepted as ID-token audience for mobile Google sign-in. Empty disables the exchange endpoint |
 | `OAUTH_REDIRECT_BASE` | — | Absolute `http(s)` origin (no path, query, or fragment) that the OAuth callback returns to. **Required in production** whenever OAuth is enabled |
 | `OAUTH_SPA_BASE` | API base | Optional origin to hand the browser back to after the OAuth callback instead of the API origin — use it when the SPA is hosted separately |
 | `WEBHOOK_URLS` | `""` (off) | Comma-separated `http(s)` endpoints that receive copies of application events (`upload`, `update`, `mkdir`, `delete`, `share`, `share_revoke`, `restore`, `quota`, `download`, `login`). Non-HTTP(S) or malformed entries are dropped at startup |
@@ -962,10 +1030,18 @@ For support, please open an issue in the GitHub repository.
 - [x] **Real-time updates**: Live file/account events over Server-Sent Events
 - [x] **User management & RBAC**: Custom roles/permissions, account lifecycle, password reset, session revoke
 - [x] **Cloud Storage**: S3-compatible object store (AWS, MinIO, R2, GCS) behind `STORAGE_BACKEND=s3`
-- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, live gRPC events)
+- [x] **Mobile App**: Flutter client (browse, upload, download, share, usage, live gRPC events, TailTime social feed, streaming media preview, Google sign-in, WebRTC file transfer and calls, nearby discovery, user search)
 - [x] **Analytics**: Usage analytics and reporting (JSONL rollups under `.file-share/events.jsonl`)
 - [x] **Observability**: Prometheus `/metrics` (HTTP+gRPC+SSE gauges, admin/token-guarded), `/health/ready` dependency checks, request-id correlation, loopback pprof
 - [x] **Fast startup**: CRC-checked full-text index snapshot — boots only re-extract files that changed since the last run
+- [x] **Social**: Follow graph, per-file visibility (private/link/public + streaming toggle), upload timeline feed with cursor pagination
+- [x] **Calls**: WebRTC voice/video with call-scoped signaling, direct LAN media (host-only ICE), optional TURN relay, transport route detection
+- [x] **Thumbnails**: Server-side JPEG previews with EXIF stripping, client-side fallback for older backends
+- [x] **Google Sign-In**: OIDC ID-token exchange endpoint with JWK verification
+- [x] **Social**: Follow graph, per-file visibility (private/link/public + streaming toggle), upload timeline feed with cursor pagination
+- [x] **Calls**: WebRTC voice/video with call-scoped signaling, direct LAN media (host-only ICE), optional TURN relay, transport route detection
+- [x] **Thumbnails**: Server-side JPEG previews with EXIF stripping, client-side fallback for older backends
+- [x] **Google Sign-In**: OIDC ID-token exchange endpoint with JWK verification
 
 ## 📈 Performance Notes
 
@@ -973,7 +1049,7 @@ Rather than published benchmarks, the design keeps resource usage predictable:
 
 - Uploads are written as a stream, so memory stays flat regardless of file size
 - Downloads stream directly from disk; folder downloads are zipped on the fly
-- The gRPC API streams uploads and downloads in 64 KiB chunks
+- The gRPC API streams uploads and downloads in 256 KiB chunks
 - Storage indexing is in-memory, so listing is fast; the startup stat walk always runs, but with `INDEX_SNAPSHOT` on (default) only files whose size/mtime changed are re-read for the full-text index — unchanged documents are restored from a CRC-checked snapshot
 - No external database, cache, or message broker to operate
 - Observability is dependency-free: a hand-rolled Prometheus registry (`/metrics`), route-pattern labels (bounded cardinality), request-id correlation on every response, and loopback-only pprof

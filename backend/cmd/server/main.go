@@ -402,6 +402,7 @@ func main() {
 	visibilityHandler := handlers.NewVisibilityHandler(visibilityService)
 	visibilityHandler.SetAudit(auditService)
 	feedHandler := handlers.NewFeedHandler(timelineService)
+	directoryHandler := handlers.NewUserSearchHandler(services.NewDirectoryService(userRepo))
 	sharedViewHandler := handlers.NewSharedViewHandler(visibilityService)
 	thumbsHandler := handlers.NewThumbsHandler(services.NewThumbnailService(fileRepo, scoper))
 	tokenHandler := handlers.NewTokenHandler(tokenService)
@@ -463,6 +464,7 @@ func main() {
 		Follows:         followsHandler,
 		Visibility:      visibilityHandler,
 		Feed:            feedHandler,
+		UserSearch:      directoryHandler,
 		Shared:          sharedViewHandler,
 		Thumbs:          thumbsHandler,
 		Versions:        handlers.NewVersionsHandler(listVersionsService),

@@ -62,7 +62,9 @@ type RouteHandlers struct {
 	// Visibility is PUT/GET /api/visibility (per-file privacy).
 	Visibility http.Handler
 	// Feed is GET /api/feed (upload timeline, cursor paged).
-	Feed http.Handler
+	Feed           http.Handler
+	// UserSearch is GET /api/users/search (username lookup for calls).
+	UserSearch     http.Handler
 	// Shared is GET /api/shared (cross-user inline view, gate-checked).
 	Shared         http.Handler
 	// Thumbs is GET /api/thumbs (JPEG previews of own images).
@@ -323,6 +325,7 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/follows", apiChain(s.handlers.Follows))
 	mux.Handle("/api/visibility", apiChain(s.handlers.Visibility))
 	mux.Handle("/api/feed", apiChain(s.handlers.Feed))
+	mux.Handle("/api/users/search", apiChain(s.handlers.UserSearch))
 	mux.Handle("/api/shared", apiChain(s.handlers.Shared))
 	mux.Handle("/api/thumbs", apiChain(s.handlers.Thumbs))
 	mux.Handle("/api/files/versions", apiChain(s.handlers.Versions))
