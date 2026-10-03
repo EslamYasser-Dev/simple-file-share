@@ -53,6 +53,12 @@ func respondWithError(w http.ResponseWriter, err error) {
 		status, message = http.StatusUnauthorized, "totp_required"
 	case errors.Is(err, domainerrors.ErrUserAlreadyExists):
 		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, domainerrors.ErrAlreadyFollowing):
+		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, domainerrors.ErrFollowNotFound):
+		status, message = http.StatusNotFound, err.Error()
+	case errors.Is(err, domainerrors.ErrCannotFollowSelf):
+		status, message = http.StatusBadRequest, err.Error()
 	case errors.Is(err, domainerrors.ErrInvalidCredentials):
 		// Never distinguish "bad password" from "no such user" — one generic
 		// 401 prevents account enumeration through login responses.

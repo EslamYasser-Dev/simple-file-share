@@ -34,6 +34,7 @@ type ResumableUploadService struct {
 	chunkSize int64
 	ttl       time.Duration
 	bus       *events.Bus
+	timeline  *TimelineService
 	now       func() time.Time
 }
 
@@ -60,6 +61,10 @@ func NewResumableUploadService(
 
 // SetEventBus attaches a live-update bus (nil disables publishing).
 func (s *ResumableUploadService) SetEventBus(bus *events.Bus) { s.bus = bus }
+
+// SetTimeline attaches the feed recorder (nil disables recording). Recording
+// never fails the completion: entries default to private.
+func (s *ResumableUploadService) SetTimeline(timeline *TimelineService) { s.timeline = timeline }
 
 // ChunkSize returns the preferred chunk size advertised to clients.
 func (s *ResumableUploadService) ChunkSize() int64 { return s.chunkSize }
@@ -235,6 +240,9 @@ func (s *ResumableUploadService) Complete(user *models.User, id string) (*models
 	virtualName := s.scoper.PhysicalToVirtual(user, physical)
 	result := &models.FileUpload{Filename: virtualName, Size: written}
 	publishEventBytes(s.bus, events.TypeUpload, virtualName, user, written)
+	if s.timeline != nil {
+		_, _ = s.timeline.Record(models.TimelineUpload, user, virtualName, written, models.VisibilityPrivate)
+	}
 	return result, nil
 }
 

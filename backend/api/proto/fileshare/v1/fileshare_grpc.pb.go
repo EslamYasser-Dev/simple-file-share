@@ -553,6 +553,426 @@ var ShareService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	SocialService_Follow_FullMethodName             = "/fileshare.v1.SocialService/Follow"
+	SocialService_Unfollow_FullMethodName           = "/fileshare.v1.SocialService/Unfollow"
+	SocialService_IsFollowing_FullMethodName        = "/fileshare.v1.SocialService/IsFollowing"
+	SocialService_ListFollowers_FullMethodName      = "/fileshare.v1.SocialService/ListFollowers"
+	SocialService_ListFollowing_FullMethodName      = "/fileshare.v1.SocialService/ListFollowing"
+	SocialService_SetVisibility_FullMethodName      = "/fileshare.v1.SocialService/SetVisibility"
+	SocialService_GetVisibility_FullMethodName      = "/fileshare.v1.SocialService/GetVisibility"
+	SocialService_ListFeed_FullMethodName           = "/fileshare.v1.SocialService/ListFeed"
+	SocialService_DownloadSharedFile_FullMethodName = "/fileshare.v1.SocialService/DownloadSharedFile"
+)
+
+// SocialServiceClient is the client API for SocialService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// SocialService manages follows, per-file visibility, and the upload feed.
+// Every method requires authentication.
+type SocialServiceClient interface {
+	Follow(ctx context.Context, in *FollowRequest, opts ...grpc.CallOption) (*FollowResponse, error)
+	Unfollow(ctx context.Context, in *UnfollowRequest, opts ...grpc.CallOption) (*UnfollowResponse, error)
+	IsFollowing(ctx context.Context, in *IsFollowingRequest, opts ...grpc.CallOption) (*IsFollowingResponse, error)
+	ListFollowers(ctx context.Context, in *ListFollowersRequest, opts ...grpc.CallOption) (*ListFollowersResponse, error)
+	ListFollowing(ctx context.Context, in *ListFollowingRequest, opts ...grpc.CallOption) (*ListFollowingResponse, error)
+	SetVisibility(ctx context.Context, in *SetVisibilityRequest, opts ...grpc.CallOption) (*FileVisibility, error)
+	GetVisibility(ctx context.Context, in *GetVisibilityRequest, opts ...grpc.CallOption) (*FileVisibility, error)
+	ListFeed(ctx context.Context, in *ListFeedRequest, opts ...grpc.CallOption) (*ListFeedResponse, error)
+	// DownloadSharedFile streams another owner's file after re-checking the
+	// streaming gate. The first chunk carries filename and content type.
+	DownloadSharedFile(ctx context.Context, in *DownloadSharedRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadChunk], error)
+}
+
+type socialServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewSocialServiceClient(cc grpc.ClientConnInterface) SocialServiceClient {
+	return &socialServiceClient{cc}
+}
+
+func (c *socialServiceClient) Follow(ctx context.Context, in *FollowRequest, opts ...grpc.CallOption) (*FollowResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FollowResponse)
+	err := c.cc.Invoke(ctx, SocialService_Follow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) Unfollow(ctx context.Context, in *UnfollowRequest, opts ...grpc.CallOption) (*UnfollowResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnfollowResponse)
+	err := c.cc.Invoke(ctx, SocialService_Unfollow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) IsFollowing(ctx context.Context, in *IsFollowingRequest, opts ...grpc.CallOption) (*IsFollowingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsFollowingResponse)
+	err := c.cc.Invoke(ctx, SocialService_IsFollowing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) ListFollowers(ctx context.Context, in *ListFollowersRequest, opts ...grpc.CallOption) (*ListFollowersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFollowersResponse)
+	err := c.cc.Invoke(ctx, SocialService_ListFollowers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) ListFollowing(ctx context.Context, in *ListFollowingRequest, opts ...grpc.CallOption) (*ListFollowingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFollowingResponse)
+	err := c.cc.Invoke(ctx, SocialService_ListFollowing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) SetVisibility(ctx context.Context, in *SetVisibilityRequest, opts ...grpc.CallOption) (*FileVisibility, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FileVisibility)
+	err := c.cc.Invoke(ctx, SocialService_SetVisibility_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) GetVisibility(ctx context.Context, in *GetVisibilityRequest, opts ...grpc.CallOption) (*FileVisibility, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FileVisibility)
+	err := c.cc.Invoke(ctx, SocialService_GetVisibility_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) ListFeed(ctx context.Context, in *ListFeedRequest, opts ...grpc.CallOption) (*ListFeedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFeedResponse)
+	err := c.cc.Invoke(ctx, SocialService_ListFeed_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *socialServiceClient) DownloadSharedFile(ctx context.Context, in *DownloadSharedRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SocialService_ServiceDesc.Streams[0], SocialService_DownloadSharedFile_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DownloadSharedRequest, DownloadChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SocialService_DownloadSharedFileClient = grpc.ServerStreamingClient[DownloadChunk]
+
+// SocialServiceServer is the server API for SocialService service.
+// All implementations must embed UnimplementedSocialServiceServer
+// for forward compatibility.
+//
+// SocialService manages follows, per-file visibility, and the upload feed.
+// Every method requires authentication.
+type SocialServiceServer interface {
+	Follow(context.Context, *FollowRequest) (*FollowResponse, error)
+	Unfollow(context.Context, *UnfollowRequest) (*UnfollowResponse, error)
+	IsFollowing(context.Context, *IsFollowingRequest) (*IsFollowingResponse, error)
+	ListFollowers(context.Context, *ListFollowersRequest) (*ListFollowersResponse, error)
+	ListFollowing(context.Context, *ListFollowingRequest) (*ListFollowingResponse, error)
+	SetVisibility(context.Context, *SetVisibilityRequest) (*FileVisibility, error)
+	GetVisibility(context.Context, *GetVisibilityRequest) (*FileVisibility, error)
+	ListFeed(context.Context, *ListFeedRequest) (*ListFeedResponse, error)
+	// DownloadSharedFile streams another owner's file after re-checking the
+	// streaming gate. The first chunk carries filename and content type.
+	DownloadSharedFile(*DownloadSharedRequest, grpc.ServerStreamingServer[DownloadChunk]) error
+	mustEmbedUnimplementedSocialServiceServer()
+}
+
+// UnimplementedSocialServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedSocialServiceServer struct{}
+
+func (UnimplementedSocialServiceServer) Follow(context.Context, *FollowRequest) (*FollowResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Follow not implemented")
+}
+func (UnimplementedSocialServiceServer) Unfollow(context.Context, *UnfollowRequest) (*UnfollowResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Unfollow not implemented")
+}
+func (UnimplementedSocialServiceServer) IsFollowing(context.Context, *IsFollowingRequest) (*IsFollowingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method IsFollowing not implemented")
+}
+func (UnimplementedSocialServiceServer) ListFollowers(context.Context, *ListFollowersRequest) (*ListFollowersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFollowers not implemented")
+}
+func (UnimplementedSocialServiceServer) ListFollowing(context.Context, *ListFollowingRequest) (*ListFollowingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFollowing not implemented")
+}
+func (UnimplementedSocialServiceServer) SetVisibility(context.Context, *SetVisibilityRequest) (*FileVisibility, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetVisibility not implemented")
+}
+func (UnimplementedSocialServiceServer) GetVisibility(context.Context, *GetVisibilityRequest) (*FileVisibility, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVisibility not implemented")
+}
+func (UnimplementedSocialServiceServer) ListFeed(context.Context, *ListFeedRequest) (*ListFeedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFeed not implemented")
+}
+func (UnimplementedSocialServiceServer) DownloadSharedFile(*DownloadSharedRequest, grpc.ServerStreamingServer[DownloadChunk]) error {
+	return status.Error(codes.Unimplemented, "method DownloadSharedFile not implemented")
+}
+func (UnimplementedSocialServiceServer) mustEmbedUnimplementedSocialServiceServer() {}
+func (UnimplementedSocialServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafeSocialServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SocialServiceServer will
+// result in compilation errors.
+type UnsafeSocialServiceServer interface {
+	mustEmbedUnimplementedSocialServiceServer()
+}
+
+func RegisterSocialServiceServer(s grpc.ServiceRegistrar, srv SocialServiceServer) {
+	// If the following call panics, it indicates UnimplementedSocialServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&SocialService_ServiceDesc, srv)
+}
+
+func _SocialService_Follow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FollowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).Follow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_Follow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).Follow(ctx, req.(*FollowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_Unfollow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnfollowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).Unfollow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_Unfollow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).Unfollow(ctx, req.(*UnfollowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_IsFollowing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IsFollowingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).IsFollowing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_IsFollowing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).IsFollowing(ctx, req.(*IsFollowingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_ListFollowers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFollowersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).ListFollowers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_ListFollowers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).ListFollowers(ctx, req.(*ListFollowersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_ListFollowing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFollowingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).ListFollowing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_ListFollowing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).ListFollowing(ctx, req.(*ListFollowingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_SetVisibility_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetVisibilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).SetVisibility(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_SetVisibility_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).SetVisibility(ctx, req.(*SetVisibilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_GetVisibility_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVisibilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).GetVisibility(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_GetVisibility_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).GetVisibility(ctx, req.(*GetVisibilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_ListFeed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFeedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SocialServiceServer).ListFeed(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SocialService_ListFeed_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SocialServiceServer).ListFeed(ctx, req.(*ListFeedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SocialService_DownloadSharedFile_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DownloadSharedRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SocialServiceServer).DownloadSharedFile(m, &grpc.GenericServerStream[DownloadSharedRequest, DownloadChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SocialService_DownloadSharedFileServer = grpc.ServerStreamingServer[DownloadChunk]
+
+// SocialService_ServiceDesc is the grpc.ServiceDesc for SocialService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var SocialService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "fileshare.v1.SocialService",
+	HandlerType: (*SocialServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Follow",
+			Handler:    _SocialService_Follow_Handler,
+		},
+		{
+			MethodName: "Unfollow",
+			Handler:    _SocialService_Unfollow_Handler,
+		},
+		{
+			MethodName: "IsFollowing",
+			Handler:    _SocialService_IsFollowing_Handler,
+		},
+		{
+			MethodName: "ListFollowers",
+			Handler:    _SocialService_ListFollowers_Handler,
+		},
+		{
+			MethodName: "ListFollowing",
+			Handler:    _SocialService_ListFollowing_Handler,
+		},
+		{
+			MethodName: "SetVisibility",
+			Handler:    _SocialService_SetVisibility_Handler,
+		},
+		{
+			MethodName: "GetVisibility",
+			Handler:    _SocialService_GetVisibility_Handler,
+		},
+		{
+			MethodName: "ListFeed",
+			Handler:    _SocialService_ListFeed_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "DownloadSharedFile",
+			Handler:       _SocialService_DownloadSharedFile_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "fileshare/v1/fileshare.proto",
+}
+
+const (
 	EventsService_Subscribe_FullMethodName = "/fileshare.v1.EventsService/Subscribe"
 )
 

@@ -29,10 +29,10 @@ func NewShareService(
 }
 
 func (s *ShareService) CreateShare(ctx context.Context, req *filesharev1.CreateShareRequest) (*filesharev1.Share, error) {
-	// The proto surface predates share policies; gRPC clients get expiry
-	// only. Password/limit links are managed over HTTP.
 	share, err := s.create.Execute(authctx.UserFromContext(ctx), req.GetPath(), services.SharePolicy{
 		ExpiresInSeconds: req.GetExpiresInSeconds(),
+		Password:         req.GetPassword(),
+		MaxDownloads:     int(req.GetMaxDownloads()),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -64,10 +64,13 @@ func toProtoShare(s *models.Share) *filesharev1.Share {
 		return nil
 	}
 	out := &filesharev1.Share{
-		Token: s.Token,
-		Path:  s.Path,
-		Name:  filepath.Base(s.Path),
-		Owner: s.Owner,
+		Token:             s.Token,
+		Path:              s.Path,
+		Name:              filepath.Base(s.Path),
+		Owner:             s.Owner,
+		PasswordProtected: s.PasswordProtected(),
+		MaxDownloads:      int32(s.MaxDownloads),
+		Downloads:         int32(s.Downloads),
 	}
 	if !s.CreatedAt.IsZero() {
 		out.CreatedAt = s.CreatedAt.UTC().Format(time.RFC3339)

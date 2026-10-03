@@ -57,6 +57,7 @@ func NewServer(
 	shareService *ShareService,
 	eventsService *EventsService,
 	fileService *FileService,
+	socialService *SocialService,
 	opts ...ServerOption,
 ) (*Server, error) {
 	var cfg serverOptions
@@ -98,6 +99,9 @@ func NewServer(
 	filesharev1.RegisterShareServiceServer(grpcServer, shareService)
 	filesharev1.RegisterEventsServiceServer(grpcServer, eventsService)
 	filesharev1.RegisterFileServiceServer(grpcServer, fileService)
+	if socialService != nil {
+		filesharev1.RegisterSocialServiceServer(grpcServer, socialService)
+	}
 
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)

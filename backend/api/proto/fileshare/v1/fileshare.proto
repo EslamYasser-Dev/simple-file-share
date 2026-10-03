@@ -33,6 +33,22 @@ service ShareService {
   rpc RevokeShare(RevokeShareRequest) returns (RevokeShareResponse);
 }
 
+// SocialService manages follows, per-file visibility, and the upload feed.
+// Every method requires authentication.
+service SocialService {
+  rpc Follow(FollowRequest) returns (FollowResponse);
+  rpc Unfollow(UnfollowRequest) returns (UnfollowResponse);
+  rpc IsFollowing(IsFollowingRequest) returns (IsFollowingResponse);
+  rpc ListFollowers(ListFollowersRequest) returns (ListFollowersResponse);
+  rpc ListFollowing(ListFollowingRequest) returns (ListFollowingResponse);
+  rpc SetVisibility(SetVisibilityRequest) returns (FileVisibility);
+  rpc GetVisibility(GetVisibilityRequest) returns (FileVisibility);
+  rpc ListFeed(ListFeedRequest) returns (ListFeedResponse);
+  // DownloadSharedFile streams another owner's file after re-checking the
+  // streaming gate. The first chunk carries filename and content type.
+  rpc DownloadSharedFile(DownloadSharedRequest) returns (stream DownloadChunk);
+}
+
 // EventsService streams live application events for native clients
 // (the browser keeps using HTTP Server-Sent Events).
 service EventsService {
@@ -119,6 +135,11 @@ message LogoutResponse {
 message CreateShareRequest {
   string path = 1;
   int64 expires_in_seconds = 2;
+  // Optional link password (empty = public). Plaintext on the wire is
+  // protected by TLS; only the hash is stored.
+  string password = 3;
+  // Optional download cap; 0 = unlimited.
+  int32 max_downloads = 4;
 }
 
 message Share {
@@ -128,6 +149,9 @@ message Share {
   string owner = 4;
   string created_at = 5;
   string expires_at = 6;
+  bool password_protected = 7;
+  int32 max_downloads = 8;
+  int32 downloads = 9;
 }
 
 message ListSharesRequest {}
@@ -236,4 +260,96 @@ message DownloadChunk {
   string filename = 1;
   string content_type = 2;
   bytes data = 3;
+}
+
+message FollowRequest {
+  string username = 1;
+}
+
+message FollowResponse {
+  string username = 1;
+  bool following = 2;
+}
+
+message UnfollowRequest {
+  string username = 1;
+}
+
+message UnfollowResponse {
+  string username = 1;
+  bool following = 2;
+}
+
+message IsFollowingRequest {
+  string username = 1;
+}
+
+message IsFollowingResponse {
+  string username = 1;
+  bool following = 2;
+}
+
+message ListFollowersRequest {
+  string username = 1;
+}
+
+message ListFollowersResponse {
+  repeated string usernames = 1;
+}
+
+message ListFollowingRequest {
+  string username = 1;
+}
+
+message ListFollowingResponse {
+  repeated string usernames = 1;
+}
+
+message FileVisibility {
+  string owner = 1;
+  string path = 2;
+  // One of "private", "link", "public".
+  string level = 3;
+  bool allow_stream = 4;
+  string updated_at = 5;
+}
+
+message SetVisibilityRequest {
+  string path = 1;
+  string level = 2;
+  bool allow_stream = 3;
+}
+
+message GetVisibilityRequest {
+  string owner = 1;
+  string path = 2;
+}
+
+message TimelineEvent {
+  string id = 1;
+  string owner = 2;
+  // One of "upload", "share", "visibility".
+  string kind = 3;
+  string path = 4;
+  string name = 5;
+  int64 size = 6;
+  string visibility = 7;
+  string created_at = 8;
+}
+
+message ListFeedRequest {
+  // Last seen event ID; empty starts at newest.
+  string cursor = 1;
+  int32 limit = 2;
+}
+
+message ListFeedResponse {
+  repeated TimelineEvent events = 1;
+  // Cursor for the next page (last event ID); empty when exhausted.
+  string next_cursor = 2;
+}
+
+message DownloadSharedRequest {
+  string owner = 1;
+  string path = 2;
 }

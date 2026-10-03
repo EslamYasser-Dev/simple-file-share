@@ -31,6 +31,9 @@ const (
 	AuditTotpAdminReset = "totp.admin_reset"
 	AuditAPIKeyCreate   = "apikey.create"
 	AuditAPIKeyRevoke   = "apikey.revoke"
+	AuditFollow         = "follow.create"
+	AuditUnfollow       = "follow.delete"
+	AuditVisibilitySet  = "visibility.set"
 )
 
 // AuditService records security events. The store may be nil (audit

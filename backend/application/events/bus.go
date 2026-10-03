@@ -14,6 +14,8 @@ const (
 	TypeDelete      = "delete"
 	TypeShare       = "share"
 	TypeShareRevoke = "share_revoke"
+	TypeVisibility  = "visibility"
+	TypeFollow      = "follow"
 	TypeRestore     = "restore"
 	TypeQuota       = "quota"
 	TypeDownload    = "download"

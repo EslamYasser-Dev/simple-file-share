@@ -336,6 +336,20 @@ func main() {
 	purgeSharesService := services.NewPurgeExpiredSharesService(shareRepo)
 	createShareService.SetEventBus(eventBus)
 	revokeShareService.SetEventBus(eventBus)
+	// Social graph + upload timeline: JSON-file stores under .file-share/,
+	// same atomic-write pattern as shares. Feed entries default to private;
+	// every read re-applies the audience rules.
+	followRepo := fs.NewFollowFileRepository(rootDir)
+	visibilityRepo := fs.NewVisibilityFileRepository(rootDir)
+	timelineRepo := fs.NewTimelineFileRepository(rootDir)
+	followService := services.NewFollowService(followRepo, userRepo)
+	timelineService := services.NewTimelineService(timelineRepo, followRepo)
+	visibilityService := services.NewVisibilityService(fileRepo, scoper, visibilityRepo, followRepo, timelineRepo, downloadService, userRepo)
+	timelineService.SetEventBus(eventBus)
+	visibilityService.SetEventBus(eventBus)
+	uploadService.SetTimeline(timelineService)
+	resumableUploadService.SetTimeline(timelineService)
+	createShareService.SetTimeline(timelineService)
 	if purged, err := purgeSharesService.Execute(); err != nil {
 		logger.Warn("Share cleanup failed", "error", err)
 	} else if purged > 0 {
@@ -383,6 +397,12 @@ func main() {
 	selfPassHandler.SetAudit(auditService)
 	sharesHandler := handlers.NewSharesHandler(createShareService, listSharesService, revokeShareService)
 	sharesHandler.SetAudit(auditService)
+	followsHandler := handlers.NewFollowsHandler(followService)
+	followsHandler.SetAudit(auditService)
+	visibilityHandler := handlers.NewVisibilityHandler(visibilityService)
+	visibilityHandler.SetAudit(auditService)
+	feedHandler := handlers.NewFeedHandler(timelineService)
+	sharedViewHandler := handlers.NewSharedViewHandler(visibilityService)
 	tokenHandler := handlers.NewTokenHandler(tokenService)
 	tokenHandler.SetAudit(auditService)
 	tokenHandler.SetSessions(sessionService)
@@ -432,6 +452,10 @@ func main() {
 		SelfPass:        selfPassHandler,
 		Shares:          sharesHandler,
 		Share:           handlers.NewShareDownloadHandler(resolveShareService),
+		Follows:         followsHandler,
+		Visibility:      visibilityHandler,
+		Feed:            feedHandler,
+		Shared:          sharedViewHandler,
 		Versions:        handlers.NewVersionsHandler(listVersionsService),
 		Version:         handlers.NewVersionDownloadHandler(downloadVersionService),
 		Restore:         handlers.NewVersionRestoreHandler(restoreVersionService),
@@ -519,6 +543,7 @@ func main() {
 			shareService,
 			eventsService,
 			fileService,
+			grpcapi.NewSocialService(followService, visibilityService, timelineService),
 			grpcapi.WithMetrics(recorder),
 		)
 		if err != nil {

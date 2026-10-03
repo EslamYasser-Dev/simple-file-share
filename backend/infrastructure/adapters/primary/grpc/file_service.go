@@ -14,6 +14,11 @@ import (
 	"github.com/EslamYasser-Dev/simple-file-share/infrastructure/adapters/primary/authctx"
 )
 
+// streamChunkSize bounds server-stream messages: 256 KiB quarters
+// per-message framing overhead over 64 KiB while each in-flight buffer stays
+// small. Both download RPCs share it.
+const streamChunkSize = 256 * 1024
+
 // FileService adapts the file use cases to the gRPC transport.
 type FileService struct {
 	filesharev1.UnimplementedFileServiceServer
@@ -161,7 +166,7 @@ func (s *FileService) DownloadFile(req *filesharev1.DownloadFileRequest, stream 
 	}
 	defer download.Stream.Close()
 
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, streamChunkSize)
 	first := true
 	for {
 		n, readErr := download.Stream.Read(buf)

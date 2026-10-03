@@ -43,6 +43,7 @@ type CreateShareService struct {
 	now       func() time.Time
 	tokenLen  int
 	bus       *events.Bus
+	timeline  *TimelineService
 }
 
 func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareRepository, scoper ports.PathScoper, hasher ports.PasswordHasher) *CreateShareService {
@@ -58,6 +59,10 @@ func NewCreateShareService(fileRepo ports.FileRepository, shareRepo ports.ShareR
 
 // SetEventBus attaches a live-update bus (nil disables publishing).
 func (s *CreateShareService) SetEventBus(bus *events.Bus) { s.bus = bus }
+
+// SetTimeline attaches the feed recorder (nil disables recording). Recording
+// never fails the share: entries default to private.
+func (s *CreateShareService) SetTimeline(timeline *TimelineService) { s.timeline = timeline }
 
 // Execute creates a share for the given virtual path under the given policy.
 // Returns the created share.
@@ -132,6 +137,13 @@ func (s *CreateShareService) Execute(user *models.User, path string, policy Shar
 		return nil, err
 	}
 	publishEvent(s.bus, events.TypeShare, virtual, user)
+	if s.timeline != nil {
+		var size int64
+		if info, statErr := s.fileRepo.GetFileInfo(physical); statErr == nil {
+			size = info.Size
+		}
+		_, _ = s.timeline.Record(models.TimelineShare, user, virtual, size, models.VisibilityPrivate)
+	}
 	return share, nil
 }
 

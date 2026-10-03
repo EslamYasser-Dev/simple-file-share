@@ -23,6 +23,7 @@ type UploadService struct {
 	users    ports.UserRepository
 	maxBytes int64 // <= 0 means unlimited
 	bus      *events.Bus
+	timeline *TimelineService
 }
 
 func NewUploadService(fileRepo ports.FileRepository, scoper ports.PathScoper, index ports.FileIndexRepository, users ports.UserRepository, maxBytes int64) *UploadService {
@@ -31,6 +32,10 @@ func NewUploadService(fileRepo ports.FileRepository, scoper ports.PathScoper, in
 
 // SetEventBus attaches a live-update bus (nil disables publishing).
 func (s *UploadService) SetEventBus(bus *events.Bus) { s.bus = bus }
+
+// SetTimeline attaches the feed recorder (nil disables recording). Recording
+// never fails the upload: entries default to private.
+func (s *UploadService) SetTimeline(timeline *TimelineService) { s.timeline = timeline }
 
 func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([]models.FileUpload, error) {
 	var uploads []models.FileUpload
@@ -109,6 +114,9 @@ func (s *UploadService) Execute(user *models.User, parts []models.UploadPart) ([
 			Size:     written,
 		})
 		publishEventBytes(s.bus, events.TypeUpload, virtualName, user, written)
+		if s.timeline != nil {
+			_, _ = s.timeline.Record(models.TimelineUpload, user, virtualName, written, models.VisibilityPrivate)
+		}
 	}
 
 	if len(execErrors) > 0 && len(uploads) == 0 {

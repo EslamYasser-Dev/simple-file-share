@@ -57,16 +57,24 @@ type RouteHandlers struct {
 	SelfPass       http.Handler
 	Shares         http.Handler
 	Share          http.Handler
-	Versions       http.Handler
-	Version        http.Handler
-	Restore        http.Handler
-	Health         http.Handler
-	Token          http.Handler
-	Refresh        http.Handler
-	Revoke         http.Handler
-	OAuthStart     http.Handler
-	OAuthCb        http.Handler
-	GRPCCert       http.Handler
+	// Follows is POST/DELETE/GET /api/follows (open-follow graph).
+	Follows http.Handler
+	// Visibility is PUT/GET /api/visibility (per-file privacy).
+	Visibility http.Handler
+	// Feed is GET /api/feed (upload timeline, cursor paged).
+	Feed http.Handler
+	// Shared is GET /api/shared (cross-user inline view, gate-checked).
+	Shared     http.Handler
+	Versions   http.Handler
+	Version    http.Handler
+	Restore    http.Handler
+	Health     http.Handler
+	Token      http.Handler
+	Refresh    http.Handler
+	Revoke     http.Handler
+	OAuthStart http.Handler
+	OAuthCb    http.Handler
+	GRPCCert   http.Handler
 	// Metrics is GET /metrics (Prometheus text). Nil disables the route.
 	Metrics http.Handler
 	// Ready is GET /health/ready. Nil disables the route.
@@ -307,6 +315,10 @@ func (s *Server) registerRoutes() *http.ServeMux {
 		mux.Handle("/api/admin/audit", apiChain(s.handlers.AdminAudit))
 	}
 	mux.Handle("/api/shares", apiChain(s.handlers.Shares))
+	mux.Handle("/api/follows", apiChain(s.handlers.Follows))
+	mux.Handle("/api/visibility", apiChain(s.handlers.Visibility))
+	mux.Handle("/api/feed", apiChain(s.handlers.Feed))
+	mux.Handle("/api/shared", apiChain(s.handlers.Shared))
 	mux.Handle("/api/files/versions", apiChain(s.handlers.Versions))
 	mux.Handle("/api/files/version", apiChain(s.handlers.Version))
 	mux.Handle("/api/files/version/restore", apiChain(s.handlers.Restore))

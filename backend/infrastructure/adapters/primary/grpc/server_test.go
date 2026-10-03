@@ -93,7 +93,7 @@ func newGRPCFixture(t *testing.T, enableAuth bool) *grpcFixture {
 		deleteService, updateService, uploadService, downloadService,
 	)
 
-	srv, err := NewServer("0", noopLogger{}, &tls.InMemoryTLSCertGenerator{}, false, authenticateService, tokenService, enableAuth, authService, shareService, eventsService, fileService)
+	srv, err := NewServer("0", noopLogger{}, &tls.InMemoryTLSCertGenerator{}, false, authenticateService, tokenService, enableAuth, authService, shareService, eventsService, fileService, nil)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
