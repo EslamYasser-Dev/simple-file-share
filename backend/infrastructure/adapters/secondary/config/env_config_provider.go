@@ -34,6 +34,7 @@ type EnvConfigProvider struct {
 	enableAPIKeys       bool
 	webhookURLs         []string
 	webhookSecret       string
+	googleClientID      string
 }
 
 func NewEnvConfigProvider() (*EnvConfigProvider, error) {
@@ -72,6 +73,7 @@ func NewEnvConfigProvider() (*EnvConfigProvider, error) {
 		enableAPIKeys:       resolveEnableAPIKeys(),
 		webhookURLs:         resolveWebhookURLs(),
 		webhookSecret:       resolveWebhookSecret(),
+		googleClientID:      resolveGoogleClientID(),
 	}, nil
 }
 
@@ -101,6 +103,7 @@ func (p *EnvConfigProvider) EnableTwoFactor() bool       { return p.enableTwoFac
 func (p *EnvConfigProvider) EnableAPIKeys() bool         { return p.enableAPIKeys }
 func (p *EnvConfigProvider) GetWebhookURLs() []string    { return p.webhookURLs }
 func (p *EnvConfigProvider) GetWebhookSecret() string    { return p.webhookSecret }
+func (p *EnvConfigProvider) GetGoogleClientID() string   { return p.googleClientID }
 func (p *EnvConfigProvider) GetS3Settings() ports.S3Settings {
 	return p.s3
 }

@@ -176,6 +176,13 @@ func resolveEnableGRPC() bool {
 	return resolveBoolEnv("ENABLE_GRPC", true)
 }
 
+// resolveGoogleClientID returns the Google OAuth client ID(s) accepted as an
+// ID-token audience for mobile Google sign-in (comma-separated). Empty means
+// Google sign-in is not configured and the exchange endpoint refuses.
+func resolveGoogleClientID() string {
+	return strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+}
+
 // resolveMaxUploadBytes parses MAX_UPLOAD_BYTES. The value may be a plain
 // number of bytes or a human size such as "500MB", "2GB", "1TB". A value of 0,
 // "unlimited", or an unparseable value means no limit.

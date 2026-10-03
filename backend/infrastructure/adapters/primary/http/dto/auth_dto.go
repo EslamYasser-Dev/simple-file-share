@@ -126,3 +126,19 @@ func formatTime(t time.Time) string {
 	}
 	return t.UTC().Format(time.RFC3339)
 }
+
+// GoogleExchangeRequest is the body of POST /api/auth/google/exchange: a
+// Google OIDC ID token obtained by the mobile app, never a password.
+type GoogleExchangeRequest struct {
+	IDToken string `json:"idToken"`
+}
+
+// GoogleExchangeResponse is the app session minted for a verified Google
+// identity. IsNewAccount tells the client whether this sign-in created the
+// account (sign-up) or returned to an existing one.
+type GoogleExchangeResponse struct {
+	AccessToken  string `json:"accessToken"`
+	TokenType    string `json:"tokenType"`
+	ExpiresIn    int64  `json:"expiresIn"`
+	IsNewAccount bool   `json:"isNewAccount"`
+}

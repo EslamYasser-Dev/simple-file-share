@@ -104,6 +104,12 @@ func TestP2PSendSignalValidation(t *testing.T) {
 	if err := svc.SendSignal(idA, "missing", "bogus", nil); err != ErrInvalidSignal {
 		t.Fatalf("kind err = %v", err)
 	}
+	// Call kinds relay on the same channel without disturbing transfers.
+	for _, kind := range []string{P2PCallInvite, P2PCallAccept, P2PCallDecline, P2PCallEnd} {
+		if !validP2PSignalKind(kind) {
+			t.Fatalf("call kind %q must be valid", kind)
+		}
+	}
 	if err := svc.SendSignal(idA, "missing", P2PSignalOffer, json.RawMessage("{")); err != ErrInvalidSignal {
 		t.Fatalf("json err = %v", err)
 	}

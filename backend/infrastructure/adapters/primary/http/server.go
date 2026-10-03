@@ -64,17 +64,22 @@ type RouteHandlers struct {
 	// Feed is GET /api/feed (upload timeline, cursor paged).
 	Feed http.Handler
 	// Shared is GET /api/shared (cross-user inline view, gate-checked).
-	Shared     http.Handler
-	Versions   http.Handler
-	Version    http.Handler
-	Restore    http.Handler
-	Health     http.Handler
-	Token      http.Handler
-	Refresh    http.Handler
-	Revoke     http.Handler
-	OAuthStart http.Handler
-	OAuthCb    http.Handler
-	GRPCCert   http.Handler
+	Shared         http.Handler
+	// Thumbs is GET /api/thumbs (JPEG previews of own images).
+	Thumbs         http.Handler
+	Versions       http.Handler
+	Version  http.Handler
+	Restore  http.Handler
+	Health   http.Handler
+	Token    http.Handler
+	Refresh  http.Handler
+	Revoke   http.Handler
+	// GoogleExchange is POST /api/auth/google/exchange (mobile Google
+	// sign-in: ID token in, app session out).
+	GoogleExchange http.Handler
+	OAuthStart     http.Handler
+	OAuthCb        http.Handler
+	GRPCCert       http.Handler
 	// Metrics is GET /metrics (Prometheus text). Nil disables the route.
 	Metrics http.Handler
 	// Ready is GET /health/ready. Nil disables the route.
@@ -319,6 +324,7 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/visibility", apiChain(s.handlers.Visibility))
 	mux.Handle("/api/feed", apiChain(s.handlers.Feed))
 	mux.Handle("/api/shared", apiChain(s.handlers.Shared))
+	mux.Handle("/api/thumbs", apiChain(s.handlers.Thumbs))
 	mux.Handle("/api/files/versions", apiChain(s.handlers.Versions))
 	mux.Handle("/api/files/version", apiChain(s.handlers.Version))
 	mux.Handle("/api/files/version/restore", apiChain(s.handlers.Restore))
@@ -341,6 +347,7 @@ func (s *Server) registerRoutes() *http.ServeMux {
 	mux.Handle("/api/auth/token", publicMiddleware(s.handlers.Token))
 	mux.Handle("/api/auth/refresh", publicMiddleware(s.handlers.Refresh))
 	mux.Handle("/api/auth/revoke", publicMiddleware(s.handlers.Revoke))
+	mux.Handle("/api/auth/google/exchange", publicMiddleware(s.handlers.GoogleExchange))
 	mux.Handle("/api/auth/oauth/{provider}/start", publicMiddleware(s.handlers.OAuthStart))
 	mux.Handle("/api/auth/oauth/{provider}/callback", publicMiddleware(s.handlers.OAuthCb))
 

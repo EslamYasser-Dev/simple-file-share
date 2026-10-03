@@ -18,6 +18,17 @@ const (
 	P2PSignalBye       = "bye"
 )
 
+// Call signal kinds share the same relayed channel but live in their own
+// namespace so file-transfer sessions ignore them (and vice versa). Media
+// SDP still rides offer/answer/candidate with a {"scope":"call"} payload;
+// the invite/accept/decline/end frames carry call setup and teardown.
+const (
+	P2PCallInvite  = "call-invite"
+	P2PCallAccept  = "call-accept"
+	P2PCallDecline = "call-decline"
+	P2PCallEnd     = "call-end"
+)
+
 // P2P event kinds delivered on the per-peer SSE stream.
 const (
 	P2PEventHello  = "hello"
@@ -251,7 +262,8 @@ func safeSend(ch chan P2PEvent, ev P2PEvent) error {
 
 func validP2PSignalKind(kind string) bool {
 	switch kind {
-	case P2PSignalOffer, P2PSignalAnswer, P2PSignalCandidate, P2PSignalBye:
+	case P2PSignalOffer, P2PSignalAnswer, P2PSignalCandidate, P2PSignalBye,
+		P2PCallInvite, P2PCallAccept, P2PCallDecline, P2PCallEnd:
 		return true
 	default:
 		return false

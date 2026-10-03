@@ -108,6 +108,18 @@ func (s *OAuthLoginService) Complete(provider, code, state, browserState, callba
 	return s.tokens.IssueFor(user)
 }
 
+// UpsertProfile links (or creates) the account for an already-verified
+// external identity — the ID-token exchange path, which has no authorize
+// code. It reports whether the account was created by this call.
+func (s *OAuthLoginService) UpsertProfile(provider string, profile *auth.OAuthProfile) (*models.User, bool, error) {
+	_, preErr := s.users.FindByOAuth(provider, profile.Subject)
+	user, err := s.upsert(provider, profile)
+	if err != nil {
+		return nil, false, err
+	}
+	return user, errors.Is(preErr, domainerrors.ErrUserNotFound), nil
+}
+
 func (s *OAuthLoginService) upsert(provider string, profile *auth.OAuthProfile) (*models.User, error) {
 	if profile.Subject == "" {
 		return nil, domainerrors.NewValidationError("subject", provider, "oauth profile missing stable subject")

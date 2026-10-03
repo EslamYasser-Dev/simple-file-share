@@ -403,9 +403,17 @@ func main() {
 	visibilityHandler.SetAudit(auditService)
 	feedHandler := handlers.NewFeedHandler(timelineService)
 	sharedViewHandler := handlers.NewSharedViewHandler(visibilityService)
+	thumbsHandler := handlers.NewThumbsHandler(services.NewThumbnailService(fileRepo, scoper))
 	tokenHandler := handlers.NewTokenHandler(tokenService)
 	tokenHandler.SetAudit(auditService)
 	tokenHandler.SetSessions(sessionService)
+	// Mobile Google sign-in: OIDC ID token in, app session out. Unset
+	// GOOGLE_CLIENT_ID leaves the endpoint refusing every token.
+	googleVerifier := services.NewGoogleIDTokenVerifier(cfg.GetGoogleClientID(), nil)
+	googleLoginService := services.NewGoogleLoginService(oauthService, googleVerifier)
+	googleExchangeHandler := handlers.NewGoogleExchangeHandler(googleLoginService)
+	googleExchangeHandler.SetAudit(auditService)
+	googleExchangeHandler.SetSessions(sessionService)
 	revokeHandler := handlers.NewRevokeHandler(tokenService)
 	revokeHandler.SetAudit(auditService)
 	refreshHandler := handlers.NewRefreshHandler(tokenService)
@@ -456,6 +464,7 @@ func main() {
 		Visibility:      visibilityHandler,
 		Feed:            feedHandler,
 		Shared:          sharedViewHandler,
+		Thumbs:          thumbsHandler,
 		Versions:        handlers.NewVersionsHandler(listVersionsService),
 		Version:         handlers.NewVersionDownloadHandler(downloadVersionService),
 		Restore:         handlers.NewVersionRestoreHandler(restoreVersionService),
@@ -463,6 +472,7 @@ func main() {
 		Token:           tokenHandler,
 		Refresh:         refreshHandler,
 		Revoke:          revokeHandler,
+		GoogleExchange:  googleExchangeHandler,
 		Sessions:        handlers.NewSessionsHandler(sessionService),
 		OAuthStart:      handlers.NewOAuthStartHandler(oauthService),
 		OAuthCb:         handlers.NewOAuthCallbackHandler(oauthService),

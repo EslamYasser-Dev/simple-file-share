@@ -28,6 +28,7 @@ type DevConfigProvider struct {
 	enableAPIKeys       bool
 	webhookURLs         []string
 	webhookSecret       string
+	googleClientID      string
 }
 
 func NewDevConfigProvider() (*DevConfigProvider, error) {
@@ -60,6 +61,7 @@ func NewDevConfigProvider() (*DevConfigProvider, error) {
 		enableAPIKeys:       resolveEnableAPIKeys(),
 		webhookURLs:         resolveWebhookURLs(),
 		webhookSecret:       resolveWebhookSecret(),
+		googleClientID:      resolveGoogleClientID(),
 	}, nil
 }
 
@@ -91,6 +93,7 @@ func (p *DevConfigProvider) EnableTwoFactor() bool     { return p.enableTwoFacto
 func (p *DevConfigProvider) EnableAPIKeys() bool       { return p.enableAPIKeys }
 func (p *DevConfigProvider) GetWebhookURLs() []string  { return p.webhookURLs }
 func (p *DevConfigProvider) GetWebhookSecret() string  { return p.webhookSecret }
+func (p *DevConfigProvider) GetGoogleClientID() string { return p.googleClientID }
 func (p *DevConfigProvider) GetS3Settings() ports.S3Settings {
 	return p.s3
 }

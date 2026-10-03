@@ -65,6 +65,9 @@ type ConfigProvider interface {
 	// GetWebhookSecret signs webhook payloads with HMAC-SHA256
 	// ("" = deliveries are unsigned).
 	GetWebhookSecret() string
+	// GetGoogleClientID lists the Google OAuth client IDs accepted as an
+	// ID-token audience for mobile sign-in ("" = Google sign-in disabled).
+	GetGoogleClientID() string
 }
 
 // S3Settings describes an S3-compatible object store (AWS, MinIO, R2, GCS).
