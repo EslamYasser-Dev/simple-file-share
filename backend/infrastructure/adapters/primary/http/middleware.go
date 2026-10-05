@@ -19,15 +19,48 @@ import (
 // XSS cannot read it; API clients keep using Authorization: Bearer.
 const SessionCookieName = "fs_session"
 
+// AuthOption customizes AuthMiddleware wiring without breaking the
+// positional constructor used by existing call sites.
+type AuthOption func(*authConfig)
+
+type authConfig struct {
+	basicLimiter *IPLimiter
+}
+
+// WithBasicRateLimit limits requests that carry Authorization: Basic headers
+// to the given limiter's budget (nil disables the check).
+func WithBasicRateLimit(limiter *IPLimiter) AuthOption {
+	return func(c *authConfig) { c.basicLimiter = limiter }
+}
+
+// hasBasicCredentials reports whether the request presents HTTP Basic
+// credentials (the path that runs the password KDF).
+func hasBasicCredentials(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get("Authorization"), "Basic ")
+}
+
 // AuthMiddleware enforces API keys, Bearer JWT, the HttpOnly session cookie,
 // or Basic Auth and stores the authenticated account in the request context.
 // When a request authenticates with an API key, its scope is enforced here:
 // safe methods need read, mutating methods need write, /api/admin/* needs
 // admin, and the credential surface (/api/auth/* except /api/auth/me) is
 // never reachable by keys.
-func AuthMiddleware(auth *services.AuthenticateService, tokens *services.TokenService, apiKeys *services.APIKeyService) func(http.Handler) http.Handler {
+//
+// WithBasicRateLimit holds Basic-credentialed requests to a strict per-address
+// budget: every such request runs the password KDF, so an unauthenticated
+// caller must not be able to spend arbitrary CPU on it.
+func AuthMiddleware(auth *services.AuthenticateService, tokens *services.TokenService, apiKeys *services.APIKeyService, opts ...AuthOption) func(http.Handler) http.Handler {
+	var cfg authConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cfg.basicLimiter != nil && hasBasicCredentials(r) && !cfg.basicLimiter.Allow(r) {
+				w.Header().Set("Retry-After", "1")
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
 			user, scope, err := resolveAuthenticatedUser(r, auth, tokens, apiKeys)
 			if err != nil {
 				if tokens != nil {

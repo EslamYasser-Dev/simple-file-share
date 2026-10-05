@@ -172,15 +172,31 @@ func (s *ResumableUploadService) Append(user *models.User, id string, offset int
 		return nil, domainerrors.NewValidationError("size", session.Size, "upload exceeds size limit")
 	}
 
+	// Bound the chunk to the declared size (+1 so overflow stays detectable).
+	// Without this a client declaring a tiny Size could stream an unbounded
+	// body straight to disk before any size check runs.
+	remaining := session.Size - session.Offset
+	if remaining < 0 {
+		remaining = 0
+	}
+	body = io.LimitReader(body, remaining+1)
+
 	newOffset, err := s.sessions.Append(id, offset, body)
 	if err != nil {
 		// The repository reports the true staged size on offset conflicts.
 		if mismatch := asOffsetMismatch(err); mismatch != nil {
 			return nil, mismatch
 		}
+		var staged *domainerrors.StagingOffsetConflict
+		if errors.As(err, &staged) {
+			return nil, &ErrOffsetMismatch{Expected: staged.Staged, Got: offset}
+		}
 		return nil, err
 	}
 	if newOffset > session.Size {
+		// The client sent more than it declared. The LimitReader above already
+		// capped the write at declared size + 1, so the stage cannot hold more
+		// than a byte of unacknowledged data; discard the lying session.
 		_ = s.sessions.Delete(id)
 		return nil, domainerrors.NewValidationError("size", newOffset, "upload exceeds declared size")
 	}

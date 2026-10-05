@@ -20,12 +20,15 @@ import (
 
 // UploadSessionRepository persists resumable-upload metadata under
 // `.file-share/upload_sessions.json` and staged bytes under
-// `.file-share/uploads/<id>.part`. Writes are atomic (temp + rename) and
-// guarded by an in-process mutex, mirroring ShareFileRepository.
+// `.file-share/uploads/<id>.part`. Writes are atomic (temp + rename).
+// Metadata is guarded by mu; staging-file IO is guarded by a per-session lock
+// so a multi-megabyte chunk copy never blocks unrelated sessions. The two
+// lock domains are never held at the same time.
 type UploadSessionRepository struct {
 	mu       sync.Mutex
 	metaPath string
 	staging  string
+	parts    sync.Map // session id -> *sync.Mutex
 }
 
 var _ ports.UploadSessionRepository = (*UploadSessionRepository)(nil)
@@ -82,14 +85,6 @@ func (d uploadSessionDocument) toSession() *models.UploadSession {
 }
 
 func (r *UploadSessionRepository) Create(session *models.UploadSession) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	docs, err := r.loadLocked()
-	if err != nil {
-		return err
-	}
-
 	if session.ID == "" {
 		id, genErr := newSessionID()
 		if genErr != nil {
@@ -98,18 +93,30 @@ func (r *UploadSessionRepository) Create(session *models.UploadSession) error {
 		session.ID = id
 	}
 
+	unlock := r.lockPart(session.ID)
 	if err := r.ensureStagingDir(); err != nil {
+		unlock()
 		return err
 	}
 	part := r.partPath(session.ID)
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
+		unlock()
 		return fmt.Errorf("create staging file: %w", err)
 	}
 	if err := f.Close(); err != nil {
+		unlock()
 		return fmt.Errorf("close staging file: %w", err)
 	}
+	unlock()
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	docs, err := r.loadLocked()
+	if err != nil {
+		return err
+	}
 	docs[session.ID] = fromSession(session)
 	return r.saveLocked(docs)
 }
@@ -203,8 +210,8 @@ func (r *UploadSessionRepository) UpdateOffset(id string, offset int64, updatedA
 }
 
 func (r *UploadSessionRepository) OpenStaging(id string, write bool) (io.ReadWriteCloser, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	unlock := r.lockPart(id)
+	defer unlock()
 
 	if err := r.ensureStagingDir(); err != nil {
 		return nil, err
@@ -217,8 +224,8 @@ func (r *UploadSessionRepository) OpenStaging(id string, write bool) (io.ReadWri
 }
 
 func (r *UploadSessionRepository) Append(id string, offset int64, body io.Reader) (int64, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	unlock := r.lockPart(id)
+	defer unlock()
 
 	if err := r.ensureStagingDir(); err != nil {
 		return 0, err
@@ -234,57 +241,90 @@ func (r *UploadSessionRepository) Append(id string, offset int64, body io.Reader
 		return 0, fmt.Errorf("stat staging file: %w", err)
 	}
 	if offset != info.Size() {
-		return info.Size(), fmt.Errorf("offset mismatch: got %d want %d", offset, info.Size())
+		return info.Size(), &domainerrors.StagingOffsetConflict{Staged: info.Size()}
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return 0, fmt.Errorf("seek staging file: %w", err)
 	}
 	written, err := io.Copy(f, body)
 	if err != nil {
-		return info.Size(), fmt.Errorf("append staging: %w", err)
+		// Roll the staging file back to the committed offset: leaving partial
+		// bytes behind would brick the session (every retry would report an
+		// offset mismatch against data the client never had acknowledged).
+		rollbackStaging(f, offset)
+		return offset, fmt.Errorf("append staging: %w", err)
 	}
 	if err := f.Sync(); err != nil {
-		return info.Size(), fmt.Errorf("sync staging: %w", err)
+		rollbackStaging(f, offset)
+		return offset, fmt.Errorf("sync staging: %w", err)
 	}
-	return info.Size() + written, nil
+	return offset + written, nil
+}
+
+// rollbackStaging truncates a staging file back to a known-good offset after a
+// failed copy; failures are ignored because the original error is what gets
+// reported to the caller.
+func rollbackStaging(f *os.File, offset int64) {
+	if err := f.Truncate(offset); err == nil {
+		_ = f.Sync()
+	}
+}
+
+// lockPart returns the per-session staging lock for id.
+func (r *UploadSessionRepository) lockPart(id string) func() {
+	v, _ := r.parts.LoadOrStore(id, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func (r *UploadSessionRepository) Delete(id string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	docs, err := r.loadLocked()
 	if err != nil {
+		r.mu.Unlock()
 		return err
 	}
 	if _, ok := docs[id]; !ok {
+		r.mu.Unlock()
 		return &domainerrors.NotFoundError{Path: "upload session " + id}
 	}
 	delete(docs, id)
+	saveErr := r.saveLocked(docs)
+	r.mu.Unlock()
+
+	unlock := r.lockPart(id)
 	_ = os.Remove(r.partPath(id))
-	return r.saveLocked(docs)
+	unlock()
+	return saveErr
 }
 
 func (r *UploadSessionRepository) PurgeExpired(now time.Time) (int, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	docs, err := r.loadLocked()
 	if err != nil {
+		r.mu.Unlock()
 		return 0, err
 	}
-	removed := 0
+	var expired []string
 	for id, doc := range docs {
 		if now.After(doc.ExpiresAt) {
 			delete(docs, id)
-			_ = os.Remove(r.partPath(id))
-			removed++
+			expired = append(expired, id)
 		}
 	}
-	if removed == 0 {
-		return 0, nil
+	var saveErr error
+	if len(expired) > 0 {
+		saveErr = r.saveLocked(docs)
 	}
-	return removed, r.saveLocked(docs)
+	r.mu.Unlock()
+
+	for _, id := range expired {
+		unlock := r.lockPart(id)
+		_ = os.Remove(r.partPath(id))
+		unlock()
+	}
+	return len(expired), saveErr
 }
 
 func (r *UploadSessionRepository) partPath(id string) string {

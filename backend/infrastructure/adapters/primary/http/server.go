@@ -62,14 +62,14 @@ type RouteHandlers struct {
 	// Visibility is PUT/GET /api/visibility (per-file privacy).
 	Visibility http.Handler
 	// Feed is GET /api/feed (upload timeline, cursor paged).
-	Feed           http.Handler
+	Feed http.Handler
 	// UserSearch is GET /api/users/search (username lookup for calls).
-	UserSearch     http.Handler
+	UserSearch http.Handler
 	// Shared is GET /api/shared (cross-user inline view, gate-checked).
-	Shared         http.Handler
+	Shared http.Handler
 	// Thumbs is GET /api/thumbs (JPEG previews of own images).
-	Thumbs         http.Handler
-	Versions       http.Handler
+	Thumbs   http.Handler
+	Versions http.Handler
 	Version  http.Handler
 	Restore  http.Handler
 	Health   http.Handler
@@ -106,8 +106,16 @@ type Server struct {
 	// Chunked uploads issue one request per part; a dedicated higher budget
 	// keeps resume traffic from tripping the general API limiter.
 	uploadLimiter *IPLimiter
-	grpcHandler   http.Handler
-	recorder      ports.MetricsRecorder
+	// Basic credentials trigger a PBKDF2 derivation per request, so they get
+	// the strict credential budget instead of the general API one.
+	basicLimiter *IPLimiter
+	// gRPC shares the listener but bypasses the mux chains; it needs its own
+	// limiter pair — a generous one for normal RPCs and the strict credential
+	// budget for Basic-authenticated calls and the login/register methods.
+	grpcLimiter     *IPLimiter
+	grpcAuthLimiter *IPLimiter
+	grpcHandler     http.Handler
+	recorder        ports.MetricsRecorder
 }
 
 func NewServer(
@@ -146,11 +154,31 @@ func NewServer(
 		authLimiter: NewIPLimiter(0.5, 10),
 		// Resumable chunk traffic: higher rate/burst than the general API.
 		uploadLimiter: NewIPLimiter(50, 100),
+		// Basic auth runs the password KDF on every request: hold it to the
+		// same budget as the credential endpoints.
+		basicLimiter: NewIPLimiter(0.5, 10),
+		// gRPC: one stream per call, so the general budget is generous; the
+		// credential tier mirrors authLimiter.
+		grpcLimiter:     NewIPLimiter(shareLimitRate, shareLimitBurst*4),
+		grpcAuthLimiter: NewIPLimiter(0.5, 10),
 	}
 }
 
 func (s *Server) SetStaticFileServer(dir string) {
 	s.staticDir = dir
+}
+
+// isGRPCCredentialMethod reports whether a gRPC method validates raw
+// credentials (password guessing surface), which deserves the strict budget.
+func isGRPCCredentialMethod(path string) bool {
+	switch path {
+	case "/fileshare.v1.AuthService/Register",
+		"/fileshare.v1.AuthService/Authenticate",
+		"/fileshare.v1.AuthService/Login":
+		return true
+	default:
+		return false
+	}
 }
 
 // SetGRPCHandler mounts a gRPC http.Handler alongside the REST mux on this
@@ -195,8 +223,24 @@ func (s *Server) Start() error {
 	base := securityHeaders(observeRequests(s.recorder, mux))
 	if s.grpcHandler != nil {
 		grpcHandler := s.grpcHandler
+		grpcAuthLimiter := s.grpcAuthLimiter
+		grpcLimiter := s.grpcLimiter
 		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.ProtoMajor >= 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+				// gRPC bypasses the mux chains, so it must be limited here.
+				// Credential-shaped calls (Basic auth or the login/register
+				// methods) spend the strict budget; everything else the
+				// generous one.
+				limiter := grpcLimiter
+				if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") ||
+					isGRPCCredentialMethod(r.URL.Path) {
+					limiter = grpcAuthLimiter
+				}
+				if limiter != nil && !limiter.Allow(r) {
+					w.Header().Set("Retry-After", "1")
+					http.Error(w, "too many requests", http.StatusTooManyRequests)
+					return
+				}
 				grpcHandler.ServeHTTP(w, r)
 				return
 			}
@@ -455,7 +499,7 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 		},
 	}
 	if s.enableAuth && s.authService != nil {
-		middlewares = append(middlewares, AuthMiddleware(s.authService, s.tokenService, s.apiKeys))
+		middlewares = append(middlewares, AuthMiddleware(s.authService, s.tokenService, s.apiKeys, WithBasicRateLimit(s.basicLimiter)))
 	}
 	middlewares = append(middlewares, RateLimitMiddleware(s.apiLimiter))
 	return middlewares
@@ -465,7 +509,7 @@ func (s *Server) apiMiddlewareFuncs() []func(http.Handler) http.Handler {
 // no-op pass-through when auth is disabled (system view).
 func (s *Server) authMiddlewareIfEnabled() func(http.Handler) http.Handler {
 	if s.enableAuth && s.authService != nil {
-		return AuthMiddleware(s.authService, s.tokenService, s.apiKeys)
+		return AuthMiddleware(s.authService, s.tokenService, s.apiKeys, WithBasicRateLimit(s.basicLimiter))
 	}
 	return func(next http.Handler) http.Handler { return next }
 }

@@ -16,6 +16,9 @@ import (
 const (
 	defaultPageLimit = 50
 	maxPageLimit     = 500
+	// maxPageOffset bounds how deep a cursor may reach, so a tampered cursor
+	// cannot demand an unbounded scan from the backing index.
+	maxPageOffset = 1_000_000
 )
 
 type paging struct {
@@ -50,6 +53,9 @@ func parsePaging(r *http.Request) (paging, error) {
 	}
 	if err := json.Unmarshal(decoded, &payload); err != nil || payload.Offset < 0 {
 		return p, errors.New("malformed cursor")
+	}
+	if payload.Offset > maxPageOffset {
+		payload.Offset = maxPageOffset
 	}
 	p.offset = payload.Offset
 	return p, nil

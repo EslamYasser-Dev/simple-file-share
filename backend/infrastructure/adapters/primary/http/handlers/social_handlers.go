@@ -53,6 +53,7 @@ func (h *FollowsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *FollowsHandler) handleFollow(w http.ResponseWriter, r *http.Request) {
 	var req dto.FollowRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -68,6 +69,7 @@ func (h *FollowsHandler) handleFollow(w http.ResponseWriter, r *http.Request) {
 
 func (h *FollowsHandler) handleUnfollow(w http.ResponseWriter, r *http.Request) {
 	var req dto.FollowRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -142,6 +144,7 @@ func (h *VisibilityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *VisibilityHandler) handleSet(w http.ResponseWriter, r *http.Request) {
 	var req dto.SetVisibilityRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -161,7 +164,22 @@ func (h *VisibilityHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	if owner == "" {
 		owner = actorName(r)
 	}
-	vis, err := h.svc.Get(owner, q.Get("path"))
+	target := q.Get("path")
+
+	// Cross-owner reads only answer for files the caller may actually view;
+	// anything else collapses to the private default (same response as an
+	// unset record) so probing cannot distinguish "private" from "not mine".
+	if owner != actorName(r) {
+		ok, err := h.svc.CanView(currentUser(r), owner, target)
+		if err != nil || !ok {
+			respondJSON(w, http.StatusOK, dto.FromVisibility(&models.FileVisibility{
+				Owner: owner, Path: target, Level: models.VisibilityPrivate,
+			}))
+			return
+		}
+	}
+
+	vis, err := h.svc.Get(owner, target)
 	if err != nil {
 		respondWithError(w, err)
 		return

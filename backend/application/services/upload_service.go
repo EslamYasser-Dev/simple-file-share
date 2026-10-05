@@ -198,9 +198,14 @@ type budgetReader struct {
 	exceeded  bool
 }
 
+// errBudgetExceeded signals that an upload part ran past its remaining size or
+// quota budget. It must be a real error (not io.EOF): a silent EOF makes
+// io.Copy report success and the caller would commit a truncated file.
+var errBudgetExceeded = errors.New("upload exceeds remaining size or quota budget")
+
 func (r *budgetReader) Read(p []byte) (int, error) {
 	if r.exceeded || r.b.exceeded {
-		return 0, io.EOF
+		return 0, errBudgetExceeded
 	}
 	if r.remaining < 0 {
 		return r.rc.Read(p)
@@ -213,12 +218,12 @@ func (r *budgetReader) Read(p []byte) (int, error) {
 	n, err := r.rc.Read(p)
 	if int64(n) > r.remaining {
 		// Read into the overflow byte: the part exceeds the remaining budget.
-		// Hand back only the allowed bytes (the extra one is discarded) and
-		// stop, which aborts this part with a clean error upstream.
+		// Stop with an error so the repository removes the partial file and
+		// restores any previous version instead of committing a truncation.
 		r.exceeded = true
 		r.b.exceeded = true
 		r.remaining = 0
-		return int(0), io.EOF
+		return 0, errBudgetExceeded
 	}
 	r.remaining -= int64(n)
 	return n, err

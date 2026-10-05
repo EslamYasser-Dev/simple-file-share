@@ -19,6 +19,10 @@ type SearchFilesService struct {
 // for a specific result count, so every adapter speaks the same contract.
 const DefaultSearchLimit = 50
 
+// MaxSearchLimit caps any adapter-supplied count (the gRPC request carries a
+// raw limit field), matching the HTTP pagination ceiling.
+const MaxSearchLimit = 500
+
 // NewSearchFilesService builds the search use case. text may be nil, which
 // disables full-text content matching and keeps name/path-only results.
 func NewSearchFilesService(index ports.FileIndexRepository, scoper ports.PathScoper, text ports.TextIndex) *SearchFilesService {
@@ -32,6 +36,9 @@ func (s *SearchFilesService) Execute(user *models.User, query string, limit int)
 	}
 	if limit <= 0 {
 		limit = DefaultSearchLimit
+	}
+	if limit > MaxSearchLimit {
+		limit = MaxSearchLimit
 	}
 
 	// Sysadmins see everything; regular users are confined to their private

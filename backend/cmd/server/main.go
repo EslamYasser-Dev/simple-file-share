@@ -259,6 +259,7 @@ func main() {
 	uploadSessions := fs.NewUploadSessionRepository(rootDir)
 	resumableUploadService := services.NewResumableUploadService(uploadSessions, fileRepo, scoper, indexRepo, userRepo, cfg.GetMaxUploadBytes())
 	updateService := services.NewUpdateFileContentService(fileRepo, scoper)
+	updateService.SetLimits(userRepo, indexRepo, cfg.GetMaxUploadBytes())
 	createDirService := services.NewCreateDirectoryService(fileRepo, scoper)
 	deleteService := services.NewDeletePathService(fileRepo, scoper)
 	infoService := services.NewGetFileInfoService(fileRepo, scoper)
@@ -368,6 +369,11 @@ func main() {
 		for range ticker.C {
 			if n, err := resumableUploadService.PurgeExpired(); err == nil && n > 0 {
 				logger.Info("Purged expired upload sessions", "count", n)
+			}
+			// Expired share links are rejected at resolve time anyway; this
+			// keeps their records from accumulating indefinitely.
+			if n, err := purgeSharesService.Execute(); err == nil && n > 0 {
+				logger.Info("Purged expired share links", "count", n)
 			}
 		}
 	}()

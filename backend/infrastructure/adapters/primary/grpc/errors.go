@@ -23,6 +23,7 @@ func toStatus(err error) error {
 	var shareNotFound *domainerrors.ShareNotFoundError
 	var shareExpired *domainerrors.ShareExpiredError
 	var sharePassword *domainerrors.SharePasswordError
+	var quota *domainerrors.QuotaExceededError
 
 	switch {
 	case errors.Is(err, domainerrors.ErrTwoFactorRequired):
@@ -47,6 +48,9 @@ func toStatus(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.As(err, &forbidden):
 		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.As(err, &quota):
+		// Same semantics as HTTP's 413: the caller may retry after freeing space.
+		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.As(err, &shareExpired):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domainerrors.ErrShareLimitReached):

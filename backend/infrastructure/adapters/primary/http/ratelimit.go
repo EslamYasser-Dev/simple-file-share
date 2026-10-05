@@ -58,15 +58,19 @@ func (l *IPLimiter) Allow(r *http.Request) bool {
 		b.last = now
 	}
 
-	if b.tokens < 1 {
-		// Opportunistically drop long-idle buckets so the map stays bounded.
-		if len(l.buckets) > 10000 {
-			for k, candidate := range l.buckets {
-				if now.Sub(candidate.last) > 10*time.Minute {
-					delete(l.buckets, k)
-				}
+	// Opportunistically drop long-idle buckets so the map stays bounded. This
+	// runs on every request (not only rejections), because a scan of many
+	// fresh addresses would otherwise grow the map without ever tripping a
+	// rejection-path cleanup.
+	if len(l.buckets) > 10000 {
+		for k, candidate := range l.buckets {
+			if now.Sub(candidate.last) > 10*time.Minute {
+				delete(l.buckets, k)
 			}
 		}
+	}
+
+	if b.tokens < 1 {
 		return false
 	}
 	b.tokens--

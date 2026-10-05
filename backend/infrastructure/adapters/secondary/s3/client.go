@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -58,8 +59,27 @@ func NewClient(settings ports.S3Settings) *Client {
 		secretKey: settings.SecretKey,
 		prefix:    strings.Trim(settings.Prefix, "/"),
 		pathStyle: pathStyle,
-		hc:        &http.Client{},
+		hc:        newHTTPClient(),
 		now:       time.Now,
+	}
+}
+
+// newHTTPClient bounds every phase up to the response headers (dial, TLS,
+// first byte) so a hung endpoint cannot pin a goroutine forever, while
+// leaving the body stream unbounded for large uploads/downloads. A Client
+// Timeout would also cover body streaming, so it is deliberately not set.
+func newHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 }
 
